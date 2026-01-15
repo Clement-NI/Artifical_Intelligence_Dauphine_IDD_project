@@ -3167,422 +3167,1222 @@ class Result {
  *   - 吃到鬼（fear>0 且可见同格）-> 立刻删记忆，直到再次看见才重新记
  *   - 没看见时用 AI 里的一步 transition 扩散分布（不“乱放”）
  */
+//public class AI {
+//
+//    /* ===================== Search config ===================== */
+//
+//    private static final int MAX_DEPTH = 3;
+//
+//    private static final int TOPK_PER_GHOST = 3;
+//    private static final int BEAM_WIDTH = 20;
+//
+//    /* ===================== Scoring ===================== */
+//
+//    private static final int DEATH_PENALTY = -100000;
+//
+//    // Eating rewards (你要的“吃豆奖励”)
+//    private static final int REWARD_DOT = 800;
+//    private static final int REWARD_SUPER = 7000;
+//
+//    // Target shaping
+//    private static final int TARGET_EAT_BONUS = 60000;     // 吃到目标 / 目标消失
+//    private static final int TARGET_REACH_BONUS = 8000;    // 走到目标格（dT==0）
+//    private static final int TARGET_DIST_PENALTY = 450;    // 距离越远扣越多
+//
+//    // anti-dither
+//    private static final int REVERSE_PENALTY = 1000000;
+//    private static final int STAY_PENALTY = 6000;
+//
+//    // target unreachable
+//    private static final int UNREACHABLE_TARGET_PENALTY = 45000;
+//
+//    /* ===================== Root baseline ===================== */
+//
+//    private static int rootDots;
+//    private static int rootSupers;
+//
+//    private static String lastDir = null;
+//    private static final Random RNG = new Random();
+//
+//    /* ===================== Target mechanism ===================== */
+//
+//    private static int targetX = Integer.MIN_VALUE;
+//    private static int targetY = Integer.MIN_VALUE;
+//
+//    private static int lastRealScore = Integer.MIN_VALUE;
+//    private static int noScoreStreak = 0;
+//    private static final int NO_SCORE_SWAP_THRESHOLD = 10;
+//
+//
+//    /* ===================== PANIC (看到鬼先躲) ===================== */
+//
+//    // 触发条件：P(d<=1) 或 P(d<=2) 大于阈值
+//    private static final double PANIC_NEAR1 = 0.1;
+//    private static final double PANIC_NEAR2 = 0.2;
+//
+//    // PANIC 时压制“冲目标”的欲望（防止第一时间不躲）
+//    private static final int PANIC_HARD_PENALTY = 80000;
+//    private static final int PANIC_SOFT_PENALTY = 50000;
+//
+//    /* ===================== Ghost memory (REAL-TURN) ===================== */
+//
+//    private static final int FORGET_AFTER_TURNS = 7;
+//
+//    // 只有第一次看见才记；没看见就按预测扩散；>10 没看见就忘；吃鬼就删记忆
+//    private static boolean[] seenEver = null;
+//    private static int[] unseenTurns = null;
+//    private static HashMap<Integer, HashMap<Position, Double>> memDist = new HashMap<>();
+//    private static int memNGhost = -1;
+//
+//    /* ===================== Entry ===================== */
+//
+//    public static String findNextMove(BeliefState state) {
+//        if (state == null || state.getLife() <= 0) {
+//            resetMemory();
+//            return PacManLauncher.RIGHT;
+//        }
+//
+//        // 真实分数长时间不变 -> 强制换目标，防止绕圈 0 分
+//        if (lastRealScore == Integer.MIN_VALUE) lastRealScore = state.getScore();
+//        if (state.getScore() == lastRealScore) noScoreStreak++;
+//        else noScoreStreak = 0;
+//        lastRealScore = state.getScore();
+//
+//        rootDots = state.getNbrOfGommes();
+//        rootSupers = state.getNbrOfSuperGommes();
+//
+//        BeliefStateII root = new BeliefStateII(state);
+//
+//        // 真实回合级：记鬼/忘鬼/预测 并写回到 root（过滤掉“没记住”的鬼）
+//        syncGhostMemoryAndFilter(state, root);
+//
+//        // 更新目标（目标失效/不可达/0分太久都换）
+//        updateTarget(root);
+//
+//        // 按你要求：findNextMove 直接 return OR 节点
+//        return orNode(root, MAX_DEPTH);
+//    }
+//
+//    private static void resetMemory() {
+//        lastDir = null;
+//        targetX = Integer.MIN_VALUE;
+//        targetY = Integer.MIN_VALUE;
+//
+//        lastRealScore = Integer.MIN_VALUE;
+//        noScoreStreak = 0;
+//
+//        seenEver = null;
+//        unseenTurns = null;
+//        memDist.clear();
+//        memNGhost = -1;
+//    }
+//
+//    /* ===================== OR node ===================== */
+//
+//    private static String orNode(BeliefStateII s, int depth) {
+//        if (s == null || s.getLife() <= 0) return null;
+//
+//        List<String> actions = s.legalPacActions();
+//        if (actions == null || actions.isEmpty()) return null;
+//
+//        boolean panic = isPanicNow(s);
+//
+//        String bestAct = actions.get(0);
+//        int bestScore = Integer.MIN_VALUE;
+//
+//        // tie-break helpers
+//        int bestDT = Integer.MAX_VALUE;
+//        boolean bestKeepDir = false;
+//
+//        // panic helpers
+//        int bestSafe = Integer.MIN_VALUE;
+//
+//        for (String act : actions) {
+//            BeliefStateII afterP = s.afterPacman(act);
+//
+//            // AND 分数（最坏情况）
+//            int sc = andNode(afterP, depth);
+//
+//            // anti-reverse
+//            if (lastDir != null && isOpposite(lastDir, act)) sc -= REVERSE_PENALTY;
+//
+//            // tie-break distance-to-target
+//            int dT = estimateDistanceToTarget(afterP);
+//            boolean keepDir = (lastDir != null && lastDir.equals(act));
+//
+//            // panic：优先安全
+//            int safe = safetyScore(afterP);
+//
+//            if (!panic) {
+//                // 正常：主看 AND 分数
+//                if (sc > bestScore) {
+//                    bestScore = sc;
+//                    bestAct = act;
+//                    bestDT = dT;
+//                    bestKeepDir = keepDir;
+//                } else if (sc == bestScore) {
+//                    // tie-break 1：更接近目标
+//                    if (dT < bestDT) {
+//                        bestAct = act;
+//                        bestDT = dT;
+//                        bestKeepDir = keepDir;
+//                    } else if (dT == bestDT) {
+//                        // tie-break 2：保持方向
+//                        if (keepDir && !bestKeepDir) {
+//                            bestAct = act;
+//                            bestKeepDir = true;
+//                        } else if (keepDir == bestKeepDir) {
+//                            // tie-break 3：随机
+//                            if (RNG.nextBoolean()) bestAct = act;
+//                        }
+//                    }
+//                }
+//            }
+//            else {
+//                // PANIC：主看安全分，再看 AND 分数，再 tie-break
+//                if (safe > bestSafe) {
+//                    bestSafe = safe;
+//                    bestScore = sc;
+//                    bestAct = act;
+//                    bestDT = dT;
+//                    bestKeepDir = keepDir;
+//                } else if (safe == bestSafe) {
+//                    if (sc > bestScore) {
+//                        bestScore = sc;
+//                        bestAct = act;
+//                        bestDT = dT;
+//                        bestKeepDir = keepDir;
+//                    } else if (sc == bestScore) {
+//                        if (dT < bestDT) {
+//                            bestAct = act;
+//                            bestDT = dT;
+//                            bestKeepDir = keepDir;
+//                        } else if (dT == bestDT) {
+//                            if (keepDir && !bestKeepDir) {
+//                                bestAct = act;
+//                                bestKeepDir = true;
+//                            } else if (keepDir == bestKeepDir) {
+//                                if (RNG.nextBoolean()) bestAct = act;
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+//        lastDir = bestAct;
+//        return bestAct;
+//    }
+//
+//    /* ===================== AND node ===================== */
+//
+//    private static int andNode(BeliefStateII s, int depth) {
+//        if (s == null) return DEATH_PENALTY;
+//        if (s.getLife() <= 0) return DEATH_PENALTY;
+//
+//        if (depth <= 0) return evaluate(s);
+//
+//        List<BeliefStateII.Outcome> outs = s.predictGhosts(TOPK_PER_GHOST, BEAM_WIDTH);
+//        if (outs == null || outs.isEmpty()) return evaluate(s);
+//
+//        // 最坏情况（min）
+//        int worst = Integer.MAX_VALUE;
+//        for (BeliefStateII.Outcome o : outs) {
+//            BeliefStateII st = o.state;
+//            int v = (depth - 1 <= 0) ? evaluate(st) : orValue(st, depth - 1);
+//            if (v < worst) worst = v;
+//        }
+//        return worst;
+//    }
+//
+//    private static int orValue(BeliefStateII s, int depth) {
+//        if (s == null) return DEATH_PENALTY;
+//        if (s.getLife() <= 0) return DEATH_PENALTY;
+//        if (depth <= 0) return evaluate(s);
+//
+//        int best = Integer.MIN_VALUE;
+//        for (String act : s.legalPacActions()) {
+//            BeliefStateII afterP = s.afterPacman(act);
+//            int v = andNode(afterP, depth);
+//            if (v > best) best = v;
+//        }
+//        return best;
+//    }
+//
+//    /* ===================== Evaluation (按你要的) ===================== */
+//
+//    private static int evaluate(BeliefStateII s) {
+//        if (s == null) return DEATH_PENALTY;
+//        if (s.getLife() <= 0) return DEATH_PENALTY;
+//
+//        Position p = s.getPacmanPos();
+//        if (p == null) return DEATH_PENALTY;
+//
+//        // 没目标就给大负分，逼 updateTarget 去选
+//        if (!hasTarget()) return -30000;
+//
+//        int val = 0;
+//
+//        // 1) 吃豆奖励（次要，目标更重要）
+//        int eatenDots = rootDots - s.getNbrGommes();
+//        int eatenSupers = rootSupers - s.getNbrSuper();
+//        if (eatenDots > 0) val += eatenDots * REWARD_DOT;
+//        if (eatenSupers > 0) val += eatenSupers * REWARD_SUPER;
+//
+//        // 2) 目标奖励 & 靠近目标奖励
+//        char tc = safeCell(s.getMap(), targetX, targetY);
+//        boolean targetGone = (tc != '.' && tc != '*');
+//        boolean atTarget = (p.x == targetX && p.y == targetY);
+//
+//        if (atTarget || targetGone) {
+//            val += TARGET_EAT_BONUS;
+//        }
+//
+//        int dT = bfsDistance(s.getMap(), p.x, p.y, targetX, targetY, 450);
+//        if (dT >= 9999) {
+//            // 目标不可达：重罚（并且上层 updateTarget 会换目标）
+//            val -= UNREACHABLE_TARGET_PENALTY;
+//            dT = manhattan(p.x, p.y, targetX, targetY);
+//        }
+//
+//        val -= dT * TARGET_DIST_PENALTY;
+//        val += Math.max(0, 12000 - dT * 900);
+//        if (dT == 0) val += TARGET_REACH_BONUS;
+//
+//        // 3) 鬼离散惩罚（只对 BeliefStateII 里存在的鬼；忘了的鬼不在列表里）
+//        boolean panicTriggered = false;
+//
+//        for (int gi = 0; gi < s.getNbrGhost(); gi++) {
+//            BeliefStateII.GhostBelief gb = s.getGhostBelief(gi);
+//            if (gb == null || gb.prob == null || gb.prob.isEmpty()) continue;
+//
+//            // 恐惧状态鬼不算危险（你如果想更保守，删掉这一行）
+//            if (gb.fear > 0) continue;
+//
+//            double p0 = 0.0, p1 = 0.0, p2 = 0.0, p3 = 0.0;
+//
+//            for (Map.Entry<Position, Double> ent : gb.prob.entrySet()) {
+//                Position g = ent.getKey();
+//                double pr = ent.getValue();
+//                int d = manhattan(p.x, p.y, g.x, g.y);
+//                if (d == 0) p0 += pr;
+//                else if (d == 1) p1 += pr;
+//                else if (d == 2) p2 += pr;
+//                else if (d == 3) p3 += pr;
+//            }
+//
+//            // 同格：不赌命，直接判成 DEATH（你要“扣大分”，这里更强：直接当必死分支）
+//            if (p0 > 0.0) return DEATH_PENALTY;
+//
+//            // 你指定的离散惩罚（概率加权）
+//            val -= (int)(p1 * 5000.0);
+//            val -= (int)(p2 * 5000.0);
+//            val -= (int)(p3 * 2000.0);
+//
+//            double near1 = p1;            // 因为 p0 已经 return
+//            double near2 = p1 + p2;
+//
+//            if (near1 >= PANIC_NEAR1 || near2 >= PANIC_NEAR2) panicTriggered = true;
+//        }
+//
+//        // 4) PANIC 时压制“冲目标”（保证第一时间躲）
+//        if (panicTriggered) {
+//            // near1 更强 / near2 次强：这里简化成硬压制
+//            val -= PANIC_SOFT_PENALTY;
+//        }
+//
+//        // 5) 原地惩罚（防止抖动）
+//        Position old = s.getPacmanOldPos();
+//        if (old != null && old.x == p.x && old.y == p.y) val -= STAY_PENALTY;
+//
+//        return val;
+//    }
+//
+//    /* ===================== Target logic ===================== */
+//
+//    private static void updateTarget(BeliefStateII root) {
+//        if (root == null) return;
+//        char[][] map = root.getMap();
+//        Position p = root.getPacmanPos();
+//        if (map == null || p == null) return;
+//
+//        // 0分太久 -> 强制换目标
+//        if (noScoreStreak >= NO_SCORE_SWAP_THRESHOLD) {
+//            clearTarget();
+//            noScoreStreak = 0;
+//        }
+//
+//        // 目标失效/已吃
+//        if (hasTarget()) {
+//            char c = safeCell(map, targetX, targetY);
+//            if (c != '.' && c != '*') clearTarget();
+//            if (p.x == targetX && p.y == targetY) clearTarget();
+//        }
+//
+//        // 目标不可达 -> 换
+//        if (hasTarget()) {
+//            int d = bfsDistance(map, p.x, p.y, targetX, targetY, 450);
+//            if (d >= 9999) clearTarget();
+//        }
+//
+//        if (hasTarget()) return;
+//
+//        // 选新目标：优先超级豆，否则普通豆；随机
+//        int[] t = pickNearestTarget(map, p.x, p.y);
+//        if (t != null) {
+//            targetX = t[0];
+//            targetY = t[1];
+//        }
+//    }
+//
+//    private static int[] pickNearestTarget(char[][] map, int sx, int sy) {
+//    int H = map.length, W = map[0].length;
+//    boolean[][] vis = new boolean[H][W];
+//    ArrayDeque<int[]> q = new ArrayDeque<>();
+//    q.add(new int[]{sx, sy, 0});
+//    vis[sx][sy] = true;
+//
+//    int[] bestDot = null;
+//    int[] bestSuper = null;
+//
+//    int[][] dirs = {{-1,0},{1,0},{0,-1},{0,1}};
+//
+//    while (!q.isEmpty()) {
+//        int[] cur = q.poll();
+//        int x = cur[0], y = cur[1], d = cur[2];
+//
+//        char c = map[x][y];
+//        if (c == '*') return new int[]{x, y}; // 最近超级豆，直接返回（最优）
+//        if (c == '.' && bestDot == null) bestDot = new int[]{x, y};
+//
+//        for (int[] dd : dirs) {
+//            int nx = x + dd[0], ny = y + dd[1];
+//            if (nx<0||ny<0||nx>=H||ny>=W) continue;
+//            if (vis[nx][ny]) continue;
+//            if (map[nx][ny] == '#') continue;
+//            vis[nx][ny] = true;
+//            q.add(new int[]{nx, ny, d+1});
+//        }
+//    }
+//    return bestDot; // 没有超级豆就返回最近普通豆；都没有则 null
+//}
+//
+//
+//    private static int[] pickRandomTarget(char[][] map) {
+//        int H = map.length, W = map[0].length;
+//        ArrayList<int[]> supers = new ArrayList<>();
+//        ArrayList<int[]> dots = new ArrayList<>();
+//
+//        for (int x = 0; x < H; x++) {
+//            for (int y = 0; y < W; y++) {
+//                if (map[x][y] == '*') supers.add(new int[]{x, y});
+//                else if (map[x][y] == '.') dots.add(new int[]{x, y});
+//            }
+//        }
+//
+//        if (!supers.isEmpty()) return supers.get(RNG.nextInt(supers.size()));
+//        if (!dots.isEmpty()) return dots.get(RNG.nextInt(dots.size()));
+//        return null;
+//    }
+//
+//    private static boolean hasTarget() {
+//        return targetX != Integer.MIN_VALUE && targetY != Integer.MIN_VALUE;
+//    }
+//
+//    private static void clearTarget() {
+//        targetX = Integer.MIN_VALUE;
+//        targetY = Integer.MIN_VALUE;
+//    }
+//
+//    /* ===================== PANIC helpers ===================== */
+//
+//    // 当前状态是否应该“第一时间躲”
+//    private static boolean isPanicNow(BeliefStateII s) {
+//        if (s == null) return false;
+//        Position p = s.getPacmanPos();
+//        if (p == null) return false;
+//
+//        for (int gi = 0; gi < s.getNbrGhost(); gi++) {
+//            BeliefStateII.GhostBelief gb = s.getGhostBelief(gi);
+//            if (gb == null || gb.prob == null || gb.prob.isEmpty()) continue;
+//            if (gb.fear > 0) continue;
+//
+//            double near1 = 0.0, near2 = 0.0;
+//
+//            for (Map.Entry<Position, Double> ent : gb.prob.entrySet()) {
+//                Position g = ent.getKey();
+//                double pr = ent.getValue();
+//                int d = manhattan(p.x, p.y, g.x, g.y);
+//                if (d <= 1) near1 += pr;
+//                if (d <= 2) near2 += pr;
+//            }
+//
+//            if (near1 >= PANIC_NEAR1 || near2 >= PANIC_NEAR2) return true;
+//        }
+//        return false;
+//    }
+//
+//    // 动作后的安全分：越大越安全（PANIC 下 OR 直接优先它）
+//    private static int safetyScore(BeliefStateII afterP) {
+//        if (afterP == null || afterP.getLife() <= 0) return Integer.MIN_VALUE;
+//        Position p = afterP.getPacmanPos();
+//        if (p == null) return Integer.MIN_VALUE;
+//
+//        double minExp = 9999.0;
+//        int minDet = 9999;
+//
+//        for (int gi = 0; gi < afterP.getNbrGhost(); gi++) {
+//            BeliefStateII.GhostBelief gb = afterP.getGhostBelief(gi);
+//            if (gb == null || gb.prob == null || gb.prob.isEmpty()) continue;
+//            if (gb.fear > 0) continue;
+//
+//            double exp = 0.0;
+//
+//            for (Map.Entry<Position, Double> ent : gb.prob.entrySet()) {
+//                Position g = ent.getKey();
+//                double pr = ent.getValue();
+//                int d = manhattan(p.x, p.y, g.x, g.y);
+//                exp += pr * d;
+//                if (d < minDet) minDet = d;
+//            }
+//            if (exp < minExp) minExp = exp;
+//        }
+//
+//        int sc = 0;
+//        sc += (minDet >= 9999 ? 0 : minDet * 25000);
+//        sc += (minExp >= 9999.0 ? 0 : (int)(minExp * 4000.0));
+//        return sc;
+//    }
+//
+//    /* ===================== Ghost memory: sync + overwrite BeliefStateII ===================== */
+//
+//    private static void syncGhostMemoryAndFilter(BeliefState state, BeliefStateII root) {
+//        int nGhost;
+//        try { nGhost = state.getNbrOfGhost(); }
+//        catch (Exception e) { nGhost = 0; }
+//
+//        if (seenEver == null || memNGhost != nGhost) {
+//            seenEver = new boolean[nGhost];
+//            unseenTurns = new int[nGhost];
+//            memDist.clear();
+//            memNGhost = nGhost;
+//        }
+//
+//        Position pac = state.getPacmanPos();
+//        if (pac == null) return;
+//
+//        char[][] map = state.getMap();
+//
+//        boolean[] visibleNow = new boolean[nGhost];
+//        boolean[] onPacVisible = new boolean[nGhost];
+//        int[] fearNow = new int[nGhost];
+//
+//        for (int i = 0; i < nGhost; i++) {
+//            fearNow[i] = safeFear(state, i);
+//
+//            TreeSet<Position> poss;
+//            try { poss = state.getGhostPositions(i); }
+//            catch (Exception e) { poss = null; }
+//
+//            if (poss == null || poss.isEmpty()) {
+//                // 没有任何候选（引擎给不了） -> 如果之前记过就继续预测，否则忽略
+//                if (seenEver[i]) {
+//                    unseenTurns[i]++;
+//                    if (unseenTurns[i] > FORGET_AFTER_TURNS) {
+//                        seenEver[i] = false;
+//                        unseenTurns[i] = 0;
+//                        memDist.remove(i);
+//                    } else {
+//                        HashMap<Position, Double> oldDist = memDist.get(i);
+//                        if (oldDist != null && !oldDist.isEmpty() && map != null) {
+//                            HashMap<Position, Double> pred = predictOneStepGhost(oldDist, map);
+//                            pruneVisibleStates(pred, pac);
+//                            if (pred.isEmpty()) {
+//                                seenEver[i] = false;
+//                                unseenTurns[i] = 0;
+//                                memDist.remove(i);
+//                            } else {
+//                                normalize(pred);
+//                                memDist.put(i, pred);
+//                            }
+//                        }
+//                    }
+//                }
+//                continue;
+//            }
+//
+//            // 判断是否可见
+//            for (Position g : poss) {
+//                if (g == null) continue;
+//                if (BeliefState.isVisible(g.x, g.y, pac.x, pac.y)) {
+//                    visibleNow[i] = true;
+//                    if (g.x == pac.x && g.y == pac.y) onPacVisible[i] = true;
+//                }
+//            }
+//
+//            // 吃鬼：fear>0 且可见同格 -> 立刻删记忆（直到再看见）
+//            if (visibleNow[i] && onPacVisible[i] && fearNow[i] > 0) {
+//                seenEver[i] = false;
+//                unseenTurns[i] = 0;
+//                memDist.remove(i);
+//                continue;
+//            }
+//
+//            if (visibleNow[i]) {
+//                // 第一次（或再次）看见 -> 开始/继续记
+//                seenEver[i] = true;
+//                unseenTurns[i] = 0;
+//
+//                // 把分布塌缩到“可见格子集合”（严格，不乱放）
+//                ArrayList<Position> visList = new ArrayList<>();
+//                for (Position g : poss) {
+//                    if (g != null && BeliefState.isVisible(g.x, g.y, pac.x, pac.y)) visList.add(g);
+//                }
+//
+//                if (!visList.isEmpty()) {
+//                    HashMap<Position, Double> dist = new HashMap<>();
+//                    double p0 = 1.0 / visList.size();
+//                    for (Position g : visList) dist.put(new Position(g.x, g.y, g.dir), p0);
+//                    normalize(dist);
+//                    memDist.put(i, dist);
+//                } else {
+//                    // 理论上不会发生
+//                    memDist.remove(i);
+//                }
+//            } else {
+//                // 没看见
+//                if (seenEver[i]) {
+//                    unseenTurns[i]++;
+//
+//                    if (unseenTurns[i] > FORGET_AFTER_TURNS) {
+//                        seenEver[i] = false;
+//                        unseenTurns[i] = 0;
+//                        memDist.remove(i);
+//                    } else {
+//                        HashMap<Position, Double> oldDist = memDist.get(i);
+//                        if (oldDist != null && !oldDist.isEmpty() && map != null) {
+//                            HashMap<Position, Double> pred = predictOneStepGhost(oldDist, map);
+//                            pruneVisibleStates(pred, pac);
+//                            if (pred.isEmpty()) {
+//                                // STRICT：空了就忘
+//                                seenEver[i] = false;
+//                                unseenTurns[i] = 0;
+//                                memDist.remove(i);
+//                            } else {
+//                                normalize(pred);
+//                                memDist.put(i, pred);
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+//        // 写回 root：删除没记住的鬼；把记住的鬼的 prob 覆盖成 memDist
+//        for (int i = nGhost - 1; i >= 0; i--) {
+//            if (i >= root.getNbrGhost()) continue;
+//
+//            if (!seenEver[i]) {
+//                root.ghosts.remove(i);
+//            } else {
+//                BeliefStateII.GhostBelief gb = root.ghosts.get(i);
+//                gb.fear = fearNow[i];
+//
+//                // 你的 BeliefStateII STRICT 版本里有 unseenTurns 字段；没有的话这行删掉也能编译
+//                try { gb.unseenTurns = unseenTurns[i]; } catch (Exception ignored) {}
+//
+//                HashMap<Position, Double> dist = memDist.get(i);
+//                gb.prob.clear();
+//                if (dist != null) {
+//                    for (Map.Entry<Position, Double> e : dist.entrySet()) {
+//                        Position pos = e.getKey();
+//                        gb.prob.put(new Position(pos.x, pos.y, pos.dir), e.getValue());
+//                    }
+//                }
+//                gb.normalize();
+//
+//                if (gb.prob.isEmpty()) {
+//                    root.ghosts.remove(i);
+//                    seenEver[i] = false;
+//                    unseenTurns[i] = 0;
+//                    memDist.remove(i);
+//                }
+//            }
+//        }
+//    }
+//
+//    private static int safeFear(BeliefState s, int i) {
+//        try { return s.getCompteurPeur(i); } catch (Exception e) { return 0; }
+//    }
+//
+//    /* ===================== Ghost prediction helpers (AI-side) ===================== */
+//
+//    // 一步预测：把概率扩散到合法邻居；偏好直行，弱化反向
+//    private static HashMap<Position, Double> predictOneStepGhost(HashMap<Position, Double> cur, char[][] map) {
+//        HashMap<Position, Double> out = new HashMap<>();
+//        int H = map.length, W = map[0].length;
+//
+//        for (Map.Entry<Position, Double> ent : cur.entrySet()) {
+//            Position g = ent.getKey();
+//            double pg = ent.getValue();
+//
+//            ArrayList<Position> moves = new ArrayList<>(4);
+//            if (isWalkable(map, H, W, g.x - 1, g.y)) moves.add(new Position(g.x - 1, g.y, 'U'));
+//            if (isWalkable(map, H, W, g.x + 1, g.y)) moves.add(new Position(g.x + 1, g.y, 'D'));
+//            if (isWalkable(map, H, W, g.x, g.y - 1)) moves.add(new Position(g.x, g.y - 1, 'L'));
+//            if (isWalkable(map, H, W, g.x, g.y + 1)) moves.add(new Position(g.x, g.y + 1, 'R'));
+//
+//            if (moves.isEmpty()) {
+//                addProb(out, new Position(g.x, g.y, g.dir), pg);
+//                continue;
+//            }
+//
+//            double sumW = 0.0;
+//            double[] w = new double[moves.size()];
+//            for (int k = 0; k < moves.size(); k++) {
+//                Position n = moves.get(k);
+//                double wi = 1.0;
+//                if (n.dir == g.dir) wi *= 2.2;
+//                if (isOppositeDir(g.dir, n.dir)) wi *= 0.35;
+//                w[k] = wi;
+//                sumW += wi;
+//            }
+//
+//            for (int k = 0; k < moves.size(); k++) {
+//                double pr = pg * (w[k] / sumW);
+//                addProb(out, moves.get(k), pr);
+//            }
+//        }
+//
+//        return out;
+//    }
+//
+//    // 没看见时，分布中“可见格子”不可能存在：删掉
+//    private static void pruneVisibleStates(HashMap<Position, Double> dist, Position pac) {
+//        if (dist == null || dist.isEmpty() || pac == null) return;
+//        Iterator<Map.Entry<Position, Double>> it = dist.entrySet().iterator();
+//        while (it.hasNext()) {
+//            Position pos = it.next().getKey();
+//            if (BeliefState.isVisible(pos.x, pos.y, pac.x, pac.y)) it.remove();
+//        }
+//    }
+//
+//    private static boolean isWalkable(char[][] map, int H, int W, int x, int y) {
+//        if (x < 0 || y < 0 || x >= H || y >= W) return false;
+//        return map[x][y] != '#';
+//    }
+//
+//    private static void normalize(HashMap<Position, Double> m) {
+//        double s = 0.0;
+//        for (double v : m.values()) s += v;
+//        if (s <= 0) return;
+//        for (Map.Entry<Position, Double> e : m.entrySet()) e.setValue(e.getValue() / s);
+//    }
+//
+//    private static void addProb(HashMap<Position, Double> m, Position p, double v) {
+//        Double old = m.get(p);
+//        if (old == null) m.put(p, v);
+//        else m.put(p, old + v);
+//    }
+//
+//    private static boolean isOppositeDir(char a, char b) {
+//        return (a == 'U' && b == 'D') || (a == 'D' && b == 'U') ||
+//               (a == 'L' && b == 'R') || (a == 'R' && b == 'L');
+//    }
+//
+//    /* ===================== Distance helpers ===================== */
+//
+//    private static int estimateDistanceToTarget(BeliefStateII s) {
+//        if (s == null || !hasTarget()) return 9999;
+//        Position p = s.getPacmanPos();
+//        if (p == null) return 9999;
+//
+//        int d = bfsDistance(s.getMap(), p.x, p.y, targetX, targetY, 250);
+//        if (d >= 9999) d = manhattan(p.x, p.y, targetX, targetY);
+//        return d;
+//    }
+//
+//    private static int bfsDistance(char[][] map, int sx, int sy, int tx, int ty, int maxD) {
+//        if (map == null) return 9999;
+//        if (sx == tx && sy == ty) return 0;
+//
+//        int H = map.length, W = map[0].length;
+//        boolean[][] vis = new boolean[H][W];
+//        ArrayDeque<int[]> q = new ArrayDeque<>();
+//        q.add(new int[]{sx, sy, 0});
+//        vis[sx][sy] = true;
+//
+//        while (!q.isEmpty()) {
+//            int[] cur = q.removeFirst();
+//            int x = cur[0], y = cur[1], d = cur[2];
+//            if (d >= maxD) continue;
+//
+//            for (int k = 0; k < 4; k++) {
+//                int nx = x + DX[k], ny = y + DY[k];
+//                if (nx < 0 || ny < 0 || nx >= H || ny >= W) continue;
+//                if (vis[nx][ny]) continue;
+//                if (map[nx][ny] == '#') continue;
+//
+//                if (nx == tx && ny == ty) return d + 1;
+//
+//                vis[nx][ny] = true;
+//                q.add(new int[]{nx, ny, d + 1});
+//            }
+//        }
+//        return 9999;
+//    }
+//
+//    private static char safeCell(char[][] map, int x, int y) {
+//        if (map == null) return '#';
+//        if (x < 0 || y < 0 || x >= map.length || y >= map[0].length) return '#';
+//        return map[x][y];
+//    }
+//
+//    private static int manhattan(int x1, int y1, int x2, int y2) {
+//        int dx = x1 - x2; if (dx < 0) dx = -dx;
+//        int dy = y1 - y2; if (dy < 0) dy = -dy;
+//        return dx + dy;
+//    }
+//
+//    private static boolean isOpposite(String a, String b) {
+//        if (a == null || b == null) return false;
+//        return (a.equals(PacManLauncher.UP) && b.equals(PacManLauncher.DOWN)) ||
+//               (a.equals(PacManLauncher.DOWN) && b.equals(PacManLauncher.UP)) ||
+//               (a.equals(PacManLauncher.LEFT) && b.equals(PacManLauncher.RIGHT)) ||
+//               (a.equals(PacManLauncher.RIGHT) && b.equals(PacManLauncher.LEFT));
+//    }
+//
+//    private static final int[] DX = {-1, 1, 0, 0};
+//    private static final int[] DY = {0, 0, -1, 1};
+//}
+
+
 public class AI {
 
     /* ===================== Search config ===================== */
 
-    private static final int MAX_DEPTH = 3;
+    private static final int MAX_DEPTH = 2; // keep small to be fast
 
-    private static final int TOPK_PER_GHOST = 3;
-    private static final int BEAM_WIDTH = 20;
+    /* ===================== Root baseline for reward ===================== */
 
-    /* ===================== Scoring ===================== */
+    private static int rootDots = -1;
+    private static int rootSupers = -1;
 
-    private static final int DEATH_PENALTY = -100000;
+    /* ===================== Direction memory ===================== */
 
-    // Eating rewards (你要的“吃豆奖励”)
-    private static final int REWARD_DOT = 800;
-    private static final int REWARD_SUPER = 7000;
-
-    // Target shaping
-    private static final int TARGET_EAT_BONUS = 60000;     // 吃到目标 / 目标消失
-    private static final int TARGET_REACH_BONUS = 8000;    // 走到目标格（dT==0）
-    private static final int TARGET_DIST_PENALTY = 450;    // 距离越远扣越多
-
-    // anti-dither
-    private static final int REVERSE_PENALTY = 1000000;
-    private static final int STAY_PENALTY = 6000;
-
-    // target unreachable
-    private static final int UNREACHABLE_TARGET_PENALTY = 45000;
-
-    /* ===================== Root baseline ===================== */
-
-    private static int rootDots;
-    private static int rootSupers;
-
-    private static String lastDir = null;
-    private static final Random RNG = new Random();
+    private static String lastDirection = null;
 
     /* ===================== Target mechanism ===================== */
 
     private static int targetX = Integer.MIN_VALUE;
     private static int targetY = Integer.MIN_VALUE;
 
-    private static int lastRealScore = Integer.MIN_VALUE;
+    // If no score / loop -> swap target
+    private static int lastScore = Integer.MIN_VALUE;
     private static int noScoreStreak = 0;
+
     private static final int NO_SCORE_SWAP_THRESHOLD = 10;
 
+    // Loop detection (short history)
+    private static final LinkedList<String> positionHistory = new LinkedList<>();
+    private static final int HISTORY_SIZE = 16;
+    private static final int LOOP_THRESHOLD = 3;
 
-    /* ===================== PANIC (看到鬼先躲) ===================== */
+    /* ===================== Ghost forgetting (must keep) ===================== */
 
-    // 触发条件：P(d<=1) 或 P(d<=2) 大于阈值
-    private static final double PANIC_NEAR1 = 0.1;
-    private static final double PANIC_NEAR2 = 0.2;
-
-    // PANIC 时压制“冲目标”的欲望（防止第一时间不躲）
-    private static final int PANIC_HARD_PENALTY = 80000;
-    private static final int PANIC_SOFT_PENALTY = 50000;
-
-    /* ===================== Ghost memory (REAL-TURN) ===================== */
-
-    private static final int FORGET_AFTER_TURNS = 7;
-
-    // 只有第一次看见才记；没看见就按预测扩散；>10 没看见就忘；吃鬼就删记忆
+    private static final int FORGET_AFTER_TURNS = 15;
     private static boolean[] seenEver = null;
     private static int[] unseenTurns = null;
-    private static HashMap<Integer, HashMap<Position, Double>> memDist = new HashMap<>();
-    private static int memNGhost = -1;
+    private static int nGhostMemo = -1;
+
+    /* ===================== Heuristic weights ===================== */
+
+    private static final int LIFE_WEIGHT = 1_000_000;
+
+    private static final int DOT_REWARD = 800;
+    private static final int SUPER_REWARD = 6000;
+
+    private static final int TARGET_REACH_BONUS = 15000;
+    private static final int TARGET_DIST_PENALTY = 250;
+
+    private static final int REVERSE_PENALTY = 1200;
+    private static final int KEEP_DIR_BONUS = 200;
+
+    private static final int DEATH_PENALTY = -1_000_000;
+
+    // Danger penalties based on min possible ghost distance
+    private static final int DANGER_D1 = 120_000;
+    private static final int DANGER_D2 = 40_000;
+    private static final int DANGER_D3 = 15_000;
+
+    private static final Random RNG = new Random();
 
     /* ===================== Entry ===================== */
 
     public static String findNextMove(BeliefState state) {
         if (state == null || state.getLife() <= 0) {
-            resetMemory();
+            resetAll();
             return PacManLauncher.RIGHT;
         }
 
-        // 真实分数长时间不变 -> 强制换目标，防止绕圈 0 分
-        if (lastRealScore == Integer.MIN_VALUE) lastRealScore = state.getScore();
-        if (state.getScore() == lastRealScore) noScoreStreak++;
-        else noScoreStreak = 0;
-        lastRealScore = state.getScore();
-
+        // Root food counters for reward shaping
         rootDots = state.getNbrOfGommes();
         rootSupers = state.getNbrOfSuperGommes();
 
-        BeliefStateII root = new BeliefStateII(state);
+        // Score stagnation tracking (for target swap)
+        if (lastScore == Integer.MIN_VALUE) lastScore = state.getScore();
+        if (state.getScore() == lastScore) noScoreStreak++;
+        else noScoreStreak = 0;
+        lastScore = state.getScore();
 
-        // 真实回合级：记鬼/忘鬼/预测 并写回到 root（过滤掉“没记住”的鬼）
-        syncGhostMemoryAndFilter(state, root);
+        // Loop tracking
+        recordPosition(state.getPacmanPosition());
 
-        // 更新目标（目标失效/不可达/0分太久都换）
-        updateTarget(root);
+        // Ghost forgetting mechanism update (MUST KEEP)
+        updateGhostForgetting(state);
 
-        // 按你要求：findNextMove 直接 return OR 节点
-        return orNode(root, MAX_DEPTH);
+        // Update / choose target gum (nearest). If stuck, swap target.
+        updateTarget(state);
+
+        String act = orNode(state, MAX_DEPTH);
+        if (act == null) act = PacManLauncher.RIGHT;
+        lastDirection = act;
+        return act;
     }
 
-    private static void resetMemory() {
-        lastDir = null;
-        targetX = Integer.MIN_VALUE;
-        targetY = Integer.MIN_VALUE;
+    /* ===================== OR / AND search ===================== */
 
-        lastRealScore = Integer.MIN_VALUE;
-        noScoreStreak = 0;
+    private static String orNode(BeliefState state, int depth) {
+        Plans plans = state.extendsBeliefState();
+        if (plans == null || plans.size() == 0) return PacManLauncher.RIGHT;
 
-        seenEver = null;
-        unseenTurns = null;
-        memDist.clear();
-        memNGhost = -1;
-    }
+        // IMPORTANT:
+        // Teacher's BeliefState.extendsBeliefState() can include a special "listNull" plan
+        // that groups actions hitting a wall (#). Those actions do NOT move Pacman
+        // (BeliefState.move(0,0,...) is used), so Pacman will look like he "doesn't move".
+        // We must ignore those wall-actions whenever there exists at least one action
+        // that actually changes Pacman's position.
+        boolean anyMovingAction = false;
+        for (int i = 0; i < plans.size(); i++) {
+            ArrayList<String> al = plans.getAction(i);
+            if (al == null || al.isEmpty()) continue;
+            Result r = plans.getResult(i);
+            if (actionActuallyMoves(r, state)) {
+                anyMovingAction = true;
+                break;
+            }
+        }
 
-    /* ===================== OR node ===================== */
+        boolean panic = isPanic(state);
+        boolean forbidReverse = panic && ghostBehind(state);
 
-    private static String orNode(BeliefStateII s, int depth) {
-        if (s == null || s.getLife() <= 0) return null;
+        String bestAct = null;
+        double bestVal = Double.NEGATIVE_INFINITY;
 
-        List<String> actions = s.legalPacActions();
-        if (actions == null || actions.isEmpty()) return null;
-
-        boolean panic = isPanicNow(s);
-
-        String bestAct = actions.get(0);
-        int bestScore = Integer.MIN_VALUE;
-
-        // tie-break helpers
+        // tie-breaks
         int bestDT = Integer.MAX_VALUE;
-        boolean bestKeepDir = false;
+        boolean bestKeep = false;
 
-        // panic helpers
-        int bestSafe = Integer.MIN_VALUE;
-
-        for (String act : actions) {
-            BeliefStateII afterP = s.afterPacman(act);
-
-            // AND 分数（最坏情况）
-            int sc = andNode(afterP, depth);
-
-            // anti-reverse
-            if (lastDir != null && isOpposite(lastDir, act)) sc -= REVERSE_PENALTY;
-
-            // tie-break distance-to-target
-            int dT = estimateDistanceToTarget(afterP);
-            boolean keepDir = (lastDir != null && lastDir.equals(act));
-
-            // panic：优先安全
-            int safe = safetyScore(afterP);
-
-            if (!panic) {
-                // 正常：主看 AND 分数
-                if (sc > bestScore) {
-                    bestScore = sc;
-                    bestAct = act;
-                    bestDT = dT;
-                    bestKeepDir = keepDir;
-                } else if (sc == bestScore) {
-                    // tie-break 1：更接近目标
-                    if (dT < bestDT) {
-                        bestAct = act;
-                        bestDT = dT;
-                        bestKeepDir = keepDir;
-                    } else if (dT == bestDT) {
-                        // tie-break 2：保持方向
-                        if (keepDir && !bestKeepDir) {
-                            bestAct = act;
-                            bestKeepDir = true;
-                        } else if (keepDir == bestKeepDir) {
-                            // tie-break 3：随机
-                            if (RNG.nextBoolean()) bestAct = act;
-                        }
-                    }
+        // If we forbid reverse but reverse is the only possible move, allow it.
+        boolean hasNonReverse = false;
+        if (forbidReverse && lastDirection != null) {
+            for (int i = 0; i < plans.size(); i++) {
+                ArrayList<String> al = plans.getAction(i);
+                if (al == null || al.isEmpty()) continue;
+                String a = al.get(0);
+                // Only count real moves when possible
+                if (anyMovingAction && !actionActuallyMoves(plans.getResult(i), state)) continue;
+                if (!isOpposite(a, lastDirection)) {
+                    hasNonReverse = true;
+                    break;
                 }
             }
-            else {
-                // PANIC：主看安全分，再看 AND 分数，再 tie-break
-                if (safe > bestSafe) {
-                    bestSafe = safe;
-                    bestScore = sc;
+        }
+
+        for (int i = 0; i < plans.size(); i++) {
+            ArrayList<String> actionList = plans.getAction(i);
+            Result result = plans.getResult(i);
+            if (actionList == null || actionList.isEmpty()) continue;
+
+            // Skip wall-actions if we have at least one real moving action available
+            if (anyMovingAction && !actionActuallyMoves(result, state)) {
+                continue;
+            }
+
+            String act = actionList.get(0);
+
+            // panic + ghost behind => disable reverse if there is any other option
+            if (forbidReverse && hasNonReverse && lastDirection != null && isOpposite(act, lastDirection)) {
+                continue;
+            }
+
+            double val = andNode(result, state, depth);
+
+            // Direction inertia & reverse penalty (soft; hard-disable only in panic+behind)
+            if (lastDirection != null) {
+                if (act.equals(lastDirection)) {
+                    val += KEEP_DIR_BONUS;
+                } else if (isOpposite(act, lastDirection)) {
+                    val -= REVERSE_PENALTY;
+                }
+            }
+
+            // Tie-break with target distance
+            int dT = estimateDistanceToTargetAfterAction(state, act);
+            boolean keep = (lastDirection != null && act.equals(lastDirection));
+
+            if (val > bestVal) {
+                bestVal = val;
+                bestAct = act;
+                bestDT = dT;
+                bestKeep = keep;
+            } else if (val == bestVal) {
+                if (dT < bestDT) {
                     bestAct = act;
                     bestDT = dT;
-                    bestKeepDir = keepDir;
-                } else if (safe == bestSafe) {
-                    if (sc > bestScore) {
-                        bestScore = sc;
+                    bestKeep = keep;
+                } else if (dT == bestDT) {
+                    if (keep && !bestKeep) {
                         bestAct = act;
-                        bestDT = dT;
-                        bestKeepDir = keepDir;
-                    } else if (sc == bestScore) {
-                        if (dT < bestDT) {
-                            bestAct = act;
-                            bestDT = dT;
-                            bestKeepDir = keepDir;
-                        } else if (dT == bestDT) {
-                            if (keepDir && !bestKeepDir) {
-                                bestAct = act;
-                                bestKeepDir = true;
-                            } else if (keepDir == bestKeepDir) {
-                                if (RNG.nextBoolean()) bestAct = act;
-                            }
-                        }
+                        bestKeep = true;
+                    } else if (keep == bestKeep) {
+                        if (RNG.nextBoolean()) bestAct = act;
                     }
                 }
             }
         }
 
-        lastDir = bestAct;
-        return bestAct;
+        return bestAct != null ? bestAct : PacManLauncher.RIGHT;
     }
 
-    /* ===================== AND node ===================== */
+    private static double andNode(Result result, BeliefState prevState, int depth) {
+        if (prevState == null) return DEATH_PENALTY;
+        if (result == null || result.size() == 0) return evaluate(prevState);
 
-    private static int andNode(BeliefStateII s, int depth) {
-        if (s == null) return DEATH_PENALTY;
-        if (s.getLife() <= 0) return DEATH_PENALTY;
-
-        if (depth <= 0) return evaluate(s);
-
-        List<BeliefStateII.Outcome> outs = s.predictGhosts(TOPK_PER_GHOST, BEAM_WIDTH);
-        if (outs == null || outs.isEmpty()) return evaluate(s);
-
-        // 最坏情况（min）
-        int worst = Integer.MAX_VALUE;
-        for (BeliefStateII.Outcome o : outs) {
-            BeliefStateII st = o.state;
-            int v = (depth - 1 <= 0) ? evaluate(st) : orValue(st, depth - 1);
-            if (v < worst) worst = v;
+        if (depth <= 1) {
+            // leaf: average alive
+            return averageAlive(result, prevState);
         }
-        return worst;
+
+        // internal: average alive of recursive OR values
+        ArrayList<Double> aliveVals = new ArrayList<>();
+        int maxProcess = 12;
+        int processed = 0;
+
+        for (int i = 0; i < result.size() && processed < maxProcess; i++) {
+            BeliefState s = result.getBeliefState(i);
+            if (s == null) continue;
+            processed++;
+
+            // death outcome skip
+            if (s.getLife() < prevState.getLife()) continue;
+
+            double v = orValue(s, depth - 1);
+            aliveVals.add(v);
+        }
+
+        if (aliveVals.isEmpty()) return DEATH_PENALTY;
+        double sum = 0;
+        for (double v : aliveVals) sum += v;
+        return sum / aliveVals.size();
     }
 
-    private static int orValue(BeliefStateII s, int depth) {
-        if (s == null) return DEATH_PENALTY;
-        if (s.getLife() <= 0) return DEATH_PENALTY;
-        if (depth <= 0) return evaluate(s);
+    private static double orValue(BeliefState state, int depth) {
+        if (state == null || state.getLife() <= 0) return DEATH_PENALTY;
+        if (depth <= 0) return evaluate(state);
 
-        int best = Integer.MIN_VALUE;
-        for (String act : s.legalPacActions()) {
-            BeliefStateII afterP = s.afterPacman(act);
-            int v = andNode(afterP, depth);
-            if (v > best) best = v;
+        Plans plans = state.extendsBeliefState();
+        if (plans == null || plans.size() == 0) return evaluate(state);
+
+        double best = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < plans.size(); i++) {
+            Result res = plans.getResult(i);
+            best = Math.max(best, andNode(res, state, depth));
         }
         return best;
     }
 
-    /* ===================== Evaluation (按你要的) ===================== */
+    private static double averageAlive(Result result, BeliefState prevState) {
+        ArrayList<Double> aliveVals = new ArrayList<>();
 
-    private static int evaluate(BeliefStateII s) {
-        if (s == null) return DEATH_PENALTY;
-        if (s.getLife() <= 0) return DEATH_PENALTY;
+        int maxProcess = 12;
+        int processed = 0;
 
-        Position p = s.getPacmanPos();
-        if (p == null) return DEATH_PENALTY;
+        for (int i = 0; i < result.size() && processed < maxProcess; i++) {
+            BeliefState s = result.getBeliefState(i);
+            if (s == null) continue;
+            processed++;
 
-        // 没目标就给大负分，逼 updateTarget 去选
-        if (!hasTarget()) return -30000;
-
-        int val = 0;
-
-        // 1) 吃豆奖励（次要，目标更重要）
-        int eatenDots = rootDots - s.getNbrGommes();
-        int eatenSupers = rootSupers - s.getNbrSuper();
-        if (eatenDots > 0) val += eatenDots * REWARD_DOT;
-        if (eatenSupers > 0) val += eatenSupers * REWARD_SUPER;
-
-        // 2) 目标奖励 & 靠近目标奖励
-        char tc = safeCell(s.getMap(), targetX, targetY);
-        boolean targetGone = (tc != '.' && tc != '*');
-        boolean atTarget = (p.x == targetX && p.y == targetY);
-
-        if (atTarget || targetGone) {
-            val += TARGET_EAT_BONUS;
+            if (s.getLife() < prevState.getLife()) continue;
+            aliveVals.add(evaluate(s));
         }
 
-        int dT = bfsDistance(s.getMap(), p.x, p.y, targetX, targetY, 450);
-        if (dT >= 9999) {
-            // 目标不可达：重罚（并且上层 updateTarget 会换目标）
-            val -= UNREACHABLE_TARGET_PENALTY;
-            dT = manhattan(p.x, p.y, targetX, targetY);
-        }
-
-        val -= dT * TARGET_DIST_PENALTY;
-        val += Math.max(0, 12000 - dT * 900);
-        if (dT == 0) val += TARGET_REACH_BONUS;
-
-        // 3) 鬼离散惩罚（只对 BeliefStateII 里存在的鬼；忘了的鬼不在列表里）
-        boolean panicTriggered = false;
-
-        for (int gi = 0; gi < s.getNbrGhost(); gi++) {
-            BeliefStateII.GhostBelief gb = s.getGhostBelief(gi);
-            if (gb == null || gb.prob == null || gb.prob.isEmpty()) continue;
-
-            // 恐惧状态鬼不算危险（你如果想更保守，删掉这一行）
-            if (gb.fear > 0) continue;
-
-            double p0 = 0.0, p1 = 0.0, p2 = 0.0, p3 = 0.0;
-
-            for (Map.Entry<Position, Double> ent : gb.prob.entrySet()) {
-                Position g = ent.getKey();
-                double pr = ent.getValue();
-                int d = manhattan(p.x, p.y, g.x, g.y);
-                if (d == 0) p0 += pr;
-                else if (d == 1) p1 += pr;
-                else if (d == 2) p2 += pr;
-                else if (d == 3) p3 += pr;
-            }
-
-            // 同格：不赌命，直接判成 DEATH（你要“扣大分”，这里更强：直接当必死分支）
-            if (p0 > 0.0) return DEATH_PENALTY;
-
-            // 你指定的离散惩罚（概率加权）
-            val -= (int)(p1 * 5000.0);
-            val -= (int)(p2 * 5000.0);
-            val -= (int)(p3 * 2000.0);
-
-            double near1 = p1;            // 因为 p0 已经 return
-            double near2 = p1 + p2;
-
-            if (near1 >= PANIC_NEAR1 || near2 >= PANIC_NEAR2) panicTriggered = true;
-        }
-
-        // 4) PANIC 时压制“冲目标”（保证第一时间躲）
-        if (panicTriggered) {
-            // near1 更强 / near2 次强：这里简化成硬压制
-            val -= PANIC_SOFT_PENALTY;
-        }
-
-        // 5) 原地惩罚（防止抖动）
-        Position old = s.getPacmanOldPos();
-        if (old != null && old.x == p.x && old.y == p.y) val -= STAY_PENALTY;
-
-        return val;
+        if (aliveVals.isEmpty()) return DEATH_PENALTY;
+        double sum = 0;
+        for (double v : aliveVals) sum += v;
+        return sum / aliveVals.size();
     }
 
-    /* ===================== Target logic ===================== */
+    /* ===================== Evaluation ===================== */
 
-    private static void updateTarget(BeliefStateII root) {
-        if (root == null) return;
-        char[][] map = root.getMap();
-        Position p = root.getPacmanPos();
-        if (map == null || p == null) return;
+    private static double evaluate(BeliefState state) {
+        if (state == null || state.getLife() <= 0) return DEATH_PENALTY;
 
-        // 0分太久 -> 强制换目标
-        if (noScoreStreak >= NO_SCORE_SWAP_THRESHOLD) {
-            clearTarget();
+        Position pac = state.getPacmanPosition();
+        if (pac == null) return DEATH_PENALTY;
+
+        double score = 0;
+
+        // Life is huge
+        score += state.getLife() * LIFE_WEIGHT;
+
+        // Food gained since root
+        int eatenDots = (rootDots >= 0) ? (rootDots - state.getNbrOfGommes()) : 0;
+        int eatenSupers = (rootSupers >= 0) ? (rootSupers - state.getNbrOfSuperGommes()) : 0;
+        if (eatenDots > 0) score += eatenDots * DOT_REWARD;
+        if (eatenSupers > 0) score += eatenSupers * SUPER_REWARD;
+
+        // Current cell bonus (immediate)
+        char[][] map = state.getMap();
+        if (map != null) {
+            char c = map[pac.x][pac.y];
+            if (c == '.') score += 1200;
+            else if (c == '*') score += 4500;
+        }
+
+        // Target shaping
+        if (hasTarget()) {
+            int dT = bfsDistance(map, pac.x, pac.y, targetX, targetY, 350);
+            if (dT >= 9999) dT = manhattan(pac.x, pac.y, targetX, targetY);
+            score -= dT * TARGET_DIST_PENALTY;
+            if (dT == 0) score += TARGET_REACH_BONUS;
+        } else {
+            // No target should be rare; push to find one
+            score -= 20000;
+        }
+
+        // Danger penalty based on min distance to any non-feared, non-forgotten ghost
+        int minGhostDist = minPossibleGhostDist(state);
+        if (minGhostDist == 0) return DEATH_PENALTY;
+        if (minGhostDist == 1) score -= DANGER_D1;
+        else if (minGhostDist == 2) score -= DANGER_D2;
+        else if (minGhostDist == 3) score -= DANGER_D3;
+
+        // Open directions: prefer junctions when danger is near
+        int open = countOpenDirections(state);
+        if (minGhostDist <= 3) {
+            score += open * 150;
+            if (open <= 1) score -= 8000;
+        } else {
+            score += open * 40;
+            if (open <= 1) score -= 400;
+        }
+
+        return score;
+    }
+
+    /* ===================== Target selection & swap ===================== */
+
+    private static void updateTarget(BeliefState state) {
+        if (state == null) return;
+        char[][] map = state.getMap();
+        Position pac = state.getPacmanPosition();
+        if (map == null || pac == null) return;
+
+        // If target eaten / invalid -> clear
+        if (hasTarget()) {
+            char cell = safeCell(map, targetX, targetY);
+            if (cell != '.' && cell != '*') {
+                clearTarget();
+            }
+            if (pac.x == targetX && pac.y == targetY) {
+                clearTarget();
+            }
+        }
+
+        // If looping or no-score too long -> swap target
+        boolean looping = isLooping();
+        if (noScoreStreak >= NO_SCORE_SWAP_THRESHOLD || looping) {
+            // pick an alternative target to break the loop
+            int[] alt = pickNearestFood(map, pac.x, pac.y, true);
+            if (alt != null) {
+                targetX = alt[0];
+                targetY = alt[1];
+            } else {
+                clearTarget();
+            }
+            // reset streak a bit so we don't constantly retarget every frame
             noScoreStreak = 0;
+            // clear history to avoid immediate re-loop detection
+            positionHistory.clear();
+            return;
         }
 
-        // 目标失效/已吃
-        if (hasTarget()) {
-            char c = safeCell(map, targetX, targetY);
-            if (c != '.' && c != '*') clearTarget();
-            if (p.x == targetX && p.y == targetY) clearTarget();
-        }
-
-        // 目标不可达 -> 换
-        if (hasTarget()) {
-            int d = bfsDistance(map, p.x, p.y, targetX, targetY, 450);
-            if (d >= 9999) clearTarget();
-        }
-
-        if (hasTarget()) return;
-
-        // 选新目标：优先超级豆，否则普通豆；随机
-        int[] t = pickNearestTarget(map, p.x, p.y);
-        if (t != null) {
-            targetX = t[0];
-            targetY = t[1];
+        // Always have a target: nearest gum
+        if (!hasTarget()) {
+            int[] t = pickNearestFood(map, pac.x, pac.y, false);
+            if (t != null) {
+                targetX = t[0];
+                targetY = t[1];
+            }
         }
     }
 
-    private static int[] pickNearestTarget(char[][] map, int sx, int sy) {
-    int H = map.length, W = map[0].length;
-    boolean[][] vis = new boolean[H][W];
-    ArrayDeque<int[]> q = new ArrayDeque<>();
-    q.add(new int[]{sx, sy, 0});
-    vis[sx][sy] = true;
+    /**
+     * BFS find nearest food ('.' or '*').
+     * If wantAlternative=true, try not to return the current target when possible.
+     */
+    private static int[] pickNearestFood(char[][] map, int sx, int sy, boolean wantAlternative) {
+        int H = map.length;
+        int W = map[0].length;
+        boolean[][] vis = new boolean[H][W];
+        ArrayDeque<int[]> q = new ArrayDeque<>();
+        q.add(new int[]{sx, sy, 0});
+        vis[sx][sy] = true;
 
-    int[] bestDot = null;
-    int[] bestSuper = null;
+        int[] first = null;
+        int[] second = null;
 
-    int[][] dirs = {{-1,0},{1,0},{0,-1},{0,1}};
+        while (!q.isEmpty()) {
+            int[] cur = q.poll();
+            int x = cur[0], y = cur[1];
 
-    while (!q.isEmpty()) {
-        int[] cur = q.poll();
-        int x = cur[0], y = cur[1], d = cur[2];
+            char c = map[x][y];
+            if (c == '.' || c == '*') {
+                if (first == null) {
+                    first = new int[]{x, y};
+                } else {
+                    // different from first
+                    if (x != first[0] || y != first[1]) {
+                        second = new int[]{x, y};
+                        break;
+                    }
+                }
+            }
 
-        char c = map[x][y];
-        if (c == '*') return new int[]{x, y}; // 最近超级豆，直接返回（最优）
-        if (c == '.' && bestDot == null) bestDot = new int[]{x, y};
-
-        for (int[] dd : dirs) {
-            int nx = x + dd[0], ny = y + dd[1];
-            if (nx<0||ny<0||nx>=H||ny>=W) continue;
-            if (vis[nx][ny]) continue;
-            if (map[nx][ny] == '#') continue;
-            vis[nx][ny] = true;
-            q.add(new int[]{nx, ny, d+1});
-        }
-    }
-    return bestDot; // 没有超级豆就返回最近普通豆；都没有则 null
-}
-
-
-    private static int[] pickRandomTarget(char[][] map) {
-        int H = map.length, W = map[0].length;
-        ArrayList<int[]> supers = new ArrayList<>();
-        ArrayList<int[]> dots = new ArrayList<>();
-
-        for (int x = 0; x < H; x++) {
-            for (int y = 0; y < W; y++) {
-                if (map[x][y] == '*') supers.add(new int[]{x, y});
-                else if (map[x][y] == '.') dots.add(new int[]{x, y});
+            for (int k = 0; k < 4; k++) {
+                int nx = x + DX[k];
+                int ny = y + DY[k];
+                if (nx < 0 || ny < 0 || nx >= H || ny >= W) continue;
+                if (vis[nx][ny]) continue;
+                if (map[nx][ny] == '#') continue;
+                vis[nx][ny] = true;
+                q.add(new int[]{nx, ny, cur[2] + 1});
             }
         }
 
-        if (!supers.isEmpty()) return supers.get(RNG.nextInt(supers.size()));
-        if (!dots.isEmpty()) return dots.get(RNG.nextInt(dots.size()));
-        return null;
+        if (!wantAlternative) {
+            return first;
+        }
+
+        // Alternative requested: try not to keep current target
+        if (first == null) return null;
+
+        if (!hasTarget()) return first;
+        if (first[0] == targetX && first[1] == targetY) {
+            return (second != null) ? second : first;
+        }
+        return first;
     }
 
     private static boolean hasTarget() {
@@ -3594,277 +4394,242 @@ public class AI {
         targetY = Integer.MIN_VALUE;
     }
 
-    /* ===================== PANIC helpers ===================== */
+    /* ===================== Panic / behind logic (kept simple) ===================== */
 
-    // 当前状态是否应该“第一时间躲”
-    private static boolean isPanicNow(BeliefStateII s) {
-        if (s == null) return false;
-        Position p = s.getPacmanPos();
-        if (p == null) return false;
+    private static boolean isPanic(BeliefState state) {
+        // Panic = a dangerous ghost could be very close.
+        int d = minPossibleGhostDist(state);
+        return d <= 2;
+    }
 
-        for (int gi = 0; gi < s.getNbrGhost(); gi++) {
-            BeliefStateII.GhostBelief gb = s.getGhostBelief(gi);
-            if (gb == null || gb.prob == null || gb.prob.isEmpty()) continue;
-            if (gb.fear > 0) continue;
+    /**
+     * "Ghost behind" check (no probability, only positions that are visible OR just recently unseen).
+     * Used only to forbid reverse in PANIC.
+     */
+    private static boolean ghostBehind(BeliefState state) {
+        if (state == null) return false;
+        if (lastDirection == null) return false;
 
-            double near1 = 0.0, near2 = 0.0;
+        Position pac = state.getPacmanPosition();
+        if (pac == null) return false;
 
-            for (Map.Entry<Position, Double> ent : gb.prob.entrySet()) {
-                Position g = ent.getKey();
-                double pr = ent.getValue();
-                int d = manhattan(p.x, p.y, g.x, g.y);
-                if (d <= 1) near1 += pr;
-                if (d <= 2) near2 += pr;
+        String behind = oppositeOf(lastDirection);
+        if (behind == null) return false;
+
+        int nG = state.getNbrOfGhost();
+        for (int i = 0; i < nG; i++) {
+            if (isForgotten(i)) continue;
+            if (state.getCompteurPeur(i) > 0) continue; // feared ghosts don't chase
+
+            TreeSet<Position> poss = state.getGhostPositions(i);
+            if (poss == null || poss.isEmpty()) continue;
+
+            boolean anyVisible = false;
+            for (Position g : poss) {
+                if (BeliefState.isVisible(g.x, g.y, pac.x, pac.y)) {
+                    anyVisible = true;
+                    break;
+                }
             }
 
-            if (near1 >= PANIC_NEAR1 || near2 >= PANIC_NEAR2) return true;
+            // If not visible and also unseen for long, skip
+            if (!anyVisible) {
+                if (unseenTurns != null && i < unseenTurns.length && unseenTurns[i] > 2) {
+                    continue;
+                }
+            }
+
+            for (Position g : poss) {
+                int dx = g.x - pac.x;
+                int dy = g.y - pac.y;
+                int dist = Math.abs(dx) + Math.abs(dy);
+                if (dist == 0 || dist > 3) continue;
+                if (isInDirection(behind, dx, dy)) return true;
+            }
         }
         return false;
     }
 
-    // 动作后的安全分：越大越安全（PANIC 下 OR 直接优先它）
-    private static int safetyScore(BeliefStateII afterP) {
-        if (afterP == null || afterP.getLife() <= 0) return Integer.MIN_VALUE;
-        Position p = afterP.getPacmanPos();
-        if (p == null) return Integer.MIN_VALUE;
-
-        double minExp = 9999.0;
-        int minDet = 9999;
-
-        for (int gi = 0; gi < afterP.getNbrGhost(); gi++) {
-            BeliefStateII.GhostBelief gb = afterP.getGhostBelief(gi);
-            if (gb == null || gb.prob == null || gb.prob.isEmpty()) continue;
-            if (gb.fear > 0) continue;
-
-            double exp = 0.0;
-
-            for (Map.Entry<Position, Double> ent : gb.prob.entrySet()) {
-                Position g = ent.getKey();
-                double pr = ent.getValue();
-                int d = manhattan(p.x, p.y, g.x, g.y);
-                exp += pr * d;
-                if (d < minDet) minDet = d;
-            }
-            if (exp < minExp) minExp = exp;
-        }
-
-        int sc = 0;
-        sc += (minDet >= 9999 ? 0 : minDet * 25000);
-        sc += (minExp >= 9999.0 ? 0 : (int)(minExp * 4000.0));
-        return sc;
+    private static String oppositeOf(String dir) {
+        if (dir == null) return null;
+        if (dir.equals(PacManLauncher.UP)) return PacManLauncher.DOWN;
+        if (dir.equals(PacManLauncher.DOWN)) return PacManLauncher.UP;
+        if (dir.equals(PacManLauncher.LEFT)) return PacManLauncher.RIGHT;
+        if (dir.equals(PacManLauncher.RIGHT)) return PacManLauncher.LEFT;
+        return null;
     }
 
-    /* ===================== Ghost memory: sync + overwrite BeliefStateII ===================== */
+    private static boolean isInDirection(String dir, int dx, int dy) {
+        int adx = Math.abs(dx);
+        int ady = Math.abs(dy);
+        if (dir.equals(PacManLauncher.UP)) return dx < 0 && adx >= ady;
+        if (dir.equals(PacManLauncher.DOWN)) return dx > 0 && adx >= ady;
+        if (dir.equals(PacManLauncher.LEFT)) return dy < 0 && ady >= adx;
+        if (dir.equals(PacManLauncher.RIGHT)) return dy > 0 && ady >= adx;
+        return false;
+    }
 
-    private static void syncGhostMemoryAndFilter(BeliefState state, BeliefStateII root) {
-        int nGhost;
-        try { nGhost = state.getNbrOfGhost(); }
-        catch (Exception e) { nGhost = 0; }
+    /* ===================== Ghost forgetting (MUST KEEP) ===================== */
 
-        if (seenEver == null || memNGhost != nGhost) {
-            seenEver = new boolean[nGhost];
-            unseenTurns = new int[nGhost];
-            memDist.clear();
-            memNGhost = nGhost;
+    private static void updateGhostForgetting(BeliefState state) {
+        int nG = 0;
+        try { nG = state.getNbrOfGhost(); } catch (Exception ignored) {}
+
+        if (seenEver == null || unseenTurns == null || nGhostMemo != nG) {
+            seenEver = new boolean[nG];
+            unseenTurns = new int[nG];
+            nGhostMemo = nG;
         }
 
-        Position pac = state.getPacmanPos();
+        Position pac = state.getPacmanPosition();
         if (pac == null) return;
 
-        char[][] map = state.getMap();
-
-        boolean[] visibleNow = new boolean[nGhost];
-        boolean[] onPacVisible = new boolean[nGhost];
-        int[] fearNow = new int[nGhost];
-
-        for (int i = 0; i < nGhost; i++) {
-            fearNow[i] = safeFear(state, i);
-
+        for (int i = 0; i < nG; i++) {
             TreeSet<Position> poss;
-            try { poss = state.getGhostPositions(i); }
-            catch (Exception e) { poss = null; }
-
+            try { poss = state.getGhostPositions(i); } catch (Exception e) { poss = null; }
             if (poss == null || poss.isEmpty()) {
-                // 没有任何候选（引擎给不了） -> 如果之前记过就继续预测，否则忽略
                 if (seenEver[i]) {
                     unseenTurns[i]++;
                     if (unseenTurns[i] > FORGET_AFTER_TURNS) {
                         seenEver[i] = false;
                         unseenTurns[i] = 0;
-                        memDist.remove(i);
-                    } else {
-                        HashMap<Position, Double> oldDist = memDist.get(i);
-                        if (oldDist != null && !oldDist.isEmpty() && map != null) {
-                            HashMap<Position, Double> pred = predictOneStepGhost(oldDist, map);
-                            pruneVisibleStates(pred, pac);
-                            if (pred.isEmpty()) {
-                                seenEver[i] = false;
-                                unseenTurns[i] = 0;
-                                memDist.remove(i);
-                            } else {
-                                normalize(pred);
-                                memDist.put(i, pred);
-                            }
-                        }
                     }
                 }
                 continue;
             }
 
-            // 判断是否可见
+            boolean visible = false;
             for (Position g : poss) {
-                if (g == null) continue;
                 if (BeliefState.isVisible(g.x, g.y, pac.x, pac.y)) {
-                    visibleNow[i] = true;
-                    if (g.x == pac.x && g.y == pac.y) onPacVisible[i] = true;
+                    visible = true;
+                    break;
                 }
             }
 
-            // 吃鬼：fear>0 且可见同格 -> 立刻删记忆（直到再看见）
-            if (visibleNow[i] && onPacVisible[i] && fearNow[i] > 0) {
-                seenEver[i] = false;
-                unseenTurns[i] = 0;
-                memDist.remove(i);
-                continue;
-            }
-
-            if (visibleNow[i]) {
-                // 第一次（或再次）看见 -> 开始/继续记
+            if (visible) {
                 seenEver[i] = true;
                 unseenTurns[i] = 0;
-
-                // 把分布塌缩到“可见格子集合”（严格，不乱放）
-                ArrayList<Position> visList = new ArrayList<>();
-                for (Position g : poss) {
-                    if (g != null && BeliefState.isVisible(g.x, g.y, pac.x, pac.y)) visList.add(g);
-                }
-
-                if (!visList.isEmpty()) {
-                    HashMap<Position, Double> dist = new HashMap<>();
-                    double p0 = 1.0 / visList.size();
-                    for (Position g : visList) dist.put(new Position(g.x, g.y, g.dir), p0);
-                    normalize(dist);
-                    memDist.put(i, dist);
-                } else {
-                    // 理论上不会发生
-                    memDist.remove(i);
-                }
             } else {
-                // 没看见
                 if (seenEver[i]) {
                     unseenTurns[i]++;
-
                     if (unseenTurns[i] > FORGET_AFTER_TURNS) {
                         seenEver[i] = false;
                         unseenTurns[i] = 0;
-                        memDist.remove(i);
-                    } else {
-                        HashMap<Position, Double> oldDist = memDist.get(i);
-                        if (oldDist != null && !oldDist.isEmpty() && map != null) {
-                            HashMap<Position, Double> pred = predictOneStepGhost(oldDist, map);
-                            pruneVisibleStates(pred, pac);
-                            if (pred.isEmpty()) {
-                                // STRICT：空了就忘
-                                seenEver[i] = false;
-                                unseenTurns[i] = 0;
-                                memDist.remove(i);
-                            } else {
-                                normalize(pred);
-                                memDist.put(i, pred);
-                            }
-                        }
                     }
                 }
             }
         }
-
-        // 写回 root：删除没记住的鬼；把记住的鬼的 prob 覆盖成 memDist
-        for (int i = nGhost - 1; i >= 0; i--) {
-            if (i >= root.getNbrGhost()) continue;
-
-            if (!seenEver[i]) {
-                root.ghosts.remove(i);
-            } else {
-                BeliefStateII.GhostBelief gb = root.ghosts.get(i);
-                gb.fear = fearNow[i];
-
-                // 你的 BeliefStateII STRICT 版本里有 unseenTurns 字段；没有的话这行删掉也能编译
-                try { gb.unseenTurns = unseenTurns[i]; } catch (Exception ignored) {}
-
-                HashMap<Position, Double> dist = memDist.get(i);
-                gb.prob.clear();
-                if (dist != null) {
-                    for (Map.Entry<Position, Double> e : dist.entrySet()) {
-                        Position pos = e.getKey();
-                        gb.prob.put(new Position(pos.x, pos.y, pos.dir), e.getValue());
-                    }
-                }
-                gb.normalize();
-
-                if (gb.prob.isEmpty()) {
-                    root.ghosts.remove(i);
-                    seenEver[i] = false;
-                    unseenTurns[i] = 0;
-                    memDist.remove(i);
-                }
-            }
-        }
     }
 
-    private static int safeFear(BeliefState s, int i) {
-        try { return s.getCompteurPeur(i); } catch (Exception e) { return 0; }
+    private static boolean isForgotten(int ghostIdx) {
+        if (seenEver == null || unseenTurns == null) return false;
+        if (ghostIdx < 0 || ghostIdx >= seenEver.length) return false;
+        // If never seen or already forgotten => ignored
+        return !seenEver[ghostIdx];
     }
 
-    /* ===================== Ghost prediction helpers (AI-side) ===================== */
+    /* ===================== Loop tracking ===================== */
 
-    // 一步预测：把概率扩散到合法邻居；偏好直行，弱化反向
-    private static HashMap<Position, Double> predictOneStepGhost(HashMap<Position, Double> cur, char[][] map) {
-        HashMap<Position, Double> out = new HashMap<>();
-        int H = map.length, W = map[0].length;
-
-        for (Map.Entry<Position, Double> ent : cur.entrySet()) {
-            Position g = ent.getKey();
-            double pg = ent.getValue();
-
-            ArrayList<Position> moves = new ArrayList<>(4);
-            if (isWalkable(map, H, W, g.x - 1, g.y)) moves.add(new Position(g.x - 1, g.y, 'U'));
-            if (isWalkable(map, H, W, g.x + 1, g.y)) moves.add(new Position(g.x + 1, g.y, 'D'));
-            if (isWalkable(map, H, W, g.x, g.y - 1)) moves.add(new Position(g.x, g.y - 1, 'L'));
-            if (isWalkable(map, H, W, g.x, g.y + 1)) moves.add(new Position(g.x, g.y + 1, 'R'));
-
-            if (moves.isEmpty()) {
-                addProb(out, new Position(g.x, g.y, g.dir), pg);
-                continue;
-            }
-
-            double sumW = 0.0;
-            double[] w = new double[moves.size()];
-            for (int k = 0; k < moves.size(); k++) {
-                Position n = moves.get(k);
-                double wi = 1.0;
-                if (n.dir == g.dir) wi *= 2.2;
-                if (isOppositeDir(g.dir, n.dir)) wi *= 0.35;
-                w[k] = wi;
-                sumW += wi;
-            }
-
-            for (int k = 0; k < moves.size(); k++) {
-                double pr = pg * (w[k] / sumW);
-                addProb(out, moves.get(k), pr);
-            }
-        }
-
-        return out;
+    private static void recordPosition(Position p) {
+        if (p == null) return;
+        String key = p.x + "," + p.y;
+        positionHistory.addLast(key);
+        if (positionHistory.size() > HISTORY_SIZE) positionHistory.removeFirst();
     }
 
-    // 没看见时，分布中“可见格子”不可能存在：删掉
-    private static void pruneVisibleStates(HashMap<Position, Double> dist, Position pac) {
-        if (dist == null || dist.isEmpty() || pac == null) return;
-        Iterator<Map.Entry<Position, Double>> it = dist.entrySet().iterator();
-        while (it.hasNext()) {
-            Position pos = it.next().getKey();
-            if (BeliefState.isVisible(pos.x, pos.y, pac.x, pac.y)) it.remove();
+    private static boolean isLooping() {
+        if (positionHistory.size() < HISTORY_SIZE / 2) return false;
+        HashMap<String, Integer> cnt = new HashMap<>();
+        for (String s : positionHistory) {
+            cnt.put(s, cnt.getOrDefault(s, 0) + 1);
         }
+        for (int v : cnt.values()) {
+            if (v >= LOOP_THRESHOLD) return true;
+        }
+        return false;
+    }
+
+    /* ===================== Required helper methods ===================== */
+
+    /** Reset everything (requested by you). */
+    private static void resetAll() {
+        lastDirection = null;
+
+        clearTarget();
+
+        lastScore = Integer.MIN_VALUE;
+        noScoreStreak = 0;
+
+        positionHistory.clear();
+
+        seenEver = null;
+        unseenTurns = null;
+        nGhostMemo = -1;
+
+        rootDots = -1;
+        rootSupers = -1;
+    }
+
+    /** Count open directions around Pacman. */
+    private static int countOpenDirections(BeliefState state) {
+        if (state == null) return 0;
+        char[][] map = state.getMap();
+        Position p = state.getPacmanPosition();
+        if (map == null || p == null) return 0;
+
+        int H = map.length;
+        int W = map[0].length;
+
+        int cnt = 0;
+        if (isWalkable(map, H, W, p.x - 1, p.y)) cnt++;
+        if (isWalkable(map, H, W, p.x + 1, p.y)) cnt++;
+        if (isWalkable(map, H, W, p.x, p.y - 1)) cnt++;
+        if (isWalkable(map, H, W, p.x, p.y + 1)) cnt++;
+        return cnt;
+    }
+
+    /** Manhattan distance helper (requested). */
+    private static int manhattan(int x1, int y1, int x2, int y2) {
+        int dx = x1 - x2;
+        if (dx < 0) dx = -dx;
+        int dy = y1 - y2;
+        if (dy < 0) dy = -dy;
+        return dx + dy;
+    }
+
+    /* ===================== Other helpers ===================== */
+
+    private static boolean isOpposite(String a, String b) {
+        if (a == null || b == null) return false;
+        return (a.equals(PacManLauncher.UP) && b.equals(PacManLauncher.DOWN)) ||
+               (a.equals(PacManLauncher.DOWN) && b.equals(PacManLauncher.UP)) ||
+               (a.equals(PacManLauncher.LEFT) && b.equals(PacManLauncher.RIGHT)) ||
+               (a.equals(PacManLauncher.RIGHT) && b.equals(PacManLauncher.LEFT));
+    }
+
+    /**
+     * Teacher's Plans may contain actions that hit a wall and therefore do not move Pacman.
+     * Such actions lead to BeliefState.move(0,0,...) and Pacman appears "not moving".
+     *
+     * We detect this by checking whether at least one successor state changes Pacman's position.
+     */
+    private static boolean actionActuallyMoves(Result result, BeliefState current) {
+        if (result == null || current == null || result.size() == 0) return false;
+        Position p0 = current.getPacmanPosition();
+        if (p0 == null) return false;
+        for (BeliefState bs : result.getBeliefStates()) {
+            if (bs == null) continue;
+            Position p1 = bs.getPacmanPosition();
+            if (p1 == null) continue;
+            if (p1.x != p0.x || p1.y != p0.y) return true;
+        }
+        return false;
+    }
+
+    private static char safeCell(char[][] map, int x, int y) {
+        if (map == null) return '#';
+        if (x < 0 || y < 0 || x >= map.length || y >= map[0].length) return '#';
+        return map[x][y];
     }
 
     private static boolean isWalkable(char[][] map, int H, int W, int x, int y) {
@@ -3872,53 +4637,25 @@ public class AI {
         return map[x][y] != '#';
     }
 
-    private static void normalize(HashMap<Position, Double> m) {
-        double s = 0.0;
-        for (double v : m.values()) s += v;
-        if (s <= 0) return;
-        for (Map.Entry<Position, Double> e : m.entrySet()) e.setValue(e.getValue() / s);
-    }
-
-    private static void addProb(HashMap<Position, Double> m, Position p, double v) {
-        Double old = m.get(p);
-        if (old == null) m.put(p, v);
-        else m.put(p, old + v);
-    }
-
-    private static boolean isOppositeDir(char a, char b) {
-        return (a == 'U' && b == 'D') || (a == 'D' && b == 'U') ||
-               (a == 'L' && b == 'R') || (a == 'R' && b == 'L');
-    }
-
-    /* ===================== Distance helpers ===================== */
-
-    private static int estimateDistanceToTarget(BeliefStateII s) {
-        if (s == null || !hasTarget()) return 9999;
-        Position p = s.getPacmanPos();
-        if (p == null) return 9999;
-
-        int d = bfsDistance(s.getMap(), p.x, p.y, targetX, targetY, 250);
-        if (d >= 9999) d = manhattan(p.x, p.y, targetX, targetY);
-        return d;
-    }
-
     private static int bfsDistance(char[][] map, int sx, int sy, int tx, int ty, int maxD) {
         if (map == null) return 9999;
         if (sx == tx && sy == ty) return 0;
 
-        int H = map.length, W = map[0].length;
+        int H = map.length;
+        int W = map[0].length;
         boolean[][] vis = new boolean[H][W];
         ArrayDeque<int[]> q = new ArrayDeque<>();
         q.add(new int[]{sx, sy, 0});
         vis[sx][sy] = true;
 
         while (!q.isEmpty()) {
-            int[] cur = q.removeFirst();
+            int[] cur = q.poll();
             int x = cur[0], y = cur[1], d = cur[2];
             if (d >= maxD) continue;
 
             for (int k = 0; k < 4; k++) {
-                int nx = x + DX[k], ny = y + DY[k];
+                int nx = x + DX[k];
+                int ny = y + DY[k];
                 if (nx < 0 || ny < 0 || nx >= H || ny >= W) continue;
                 if (vis[nx][ny]) continue;
                 if (map[nx][ny] == '#') continue;
@@ -3932,31 +4669,44 @@ public class AI {
         return 9999;
     }
 
-    private static char safeCell(char[][] map, int x, int y) {
-        if (map == null) return '#';
-        if (x < 0 || y < 0 || x >= map.length || y >= map[0].length) return '#';
-        return map[x][y];
+    private static int estimateDistanceToTargetAfterAction(BeliefState s, String act) {
+        if (s == null || !hasTarget()) return 9999;
+        Position p = s.getPacmanPosition();
+        if (p == null) return 9999;
+        int nx = p.x, ny = p.y;
+        if (PacManLauncher.UP.equals(act)) nx--;
+        else if (PacManLauncher.DOWN.equals(act)) nx++;
+        else if (PacManLauncher.LEFT.equals(act)) ny--;
+        else if (PacManLauncher.RIGHT.equals(act)) ny++;
+        return bfsDistance(s.getMap(), nx, ny, targetX, targetY, 220);
     }
 
-    private static int manhattan(int x1, int y1, int x2, int y2) {
-        int dx = x1 - x2; if (dx < 0) dx = -dx;
-        int dy = y1 - y2; if (dy < 0) dy = -dy;
-        return dx + dy;
-    }
+    private static int minPossibleGhostDist(BeliefState state) {
+        if (state == null) return 9999;
+        Position pac = state.getPacmanPosition();
+        if (pac == null) return 9999;
 
-    private static boolean isOpposite(String a, String b) {
-        if (a == null || b == null) return false;
-        return (a.equals(PacManLauncher.UP) && b.equals(PacManLauncher.DOWN)) ||
-               (a.equals(PacManLauncher.DOWN) && b.equals(PacManLauncher.UP)) ||
-               (a.equals(PacManLauncher.LEFT) && b.equals(PacManLauncher.RIGHT)) ||
-               (a.equals(PacManLauncher.RIGHT) && b.equals(PacManLauncher.LEFT));
+        int minD = 9999;
+        int nG = state.getNbrOfGhost();
+        for (int i = 0; i < nG; i++) {
+            if (isForgotten(i)) continue;
+            if (state.getCompteurPeur(i) > 0) continue; // feared
+
+            TreeSet<Position> poss = state.getGhostPositions(i);
+            if (poss == null || poss.isEmpty()) continue;
+
+            for (Position g : poss) {
+                int d = manhattan(pac.x, pac.y, g.x, g.y);
+                if (d < minD) minD = d;
+                if (minD == 0) return 0;
+            }
+        }
+        return minD;
     }
 
     private static final int[] DX = {-1, 1, 0, 0};
     private static final int[] DY = {0, 0, -1, 1};
 }
-
-
 
 
 
