@@ -1386,9 +1386,7 @@ class Result{
 //    }
 //
 //    /**
-//     * Teacher's Plans may contain actions that hit a wall and therefore do not move Pacman.
-//     * Such actions lead to BeliefState.move(0,0,...) and Pacman appears "not moving".
-//     *
+//
 //     * We detect this by checking whether at least one successor state changes Pacman's position.
 //     */
 //    private static boolean actionActuallyMoves(Result result, BeliefState current) {
