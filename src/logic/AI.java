@@ -3990,7 +3990,7 @@ public class AI {
 
     /* ===================== Ghost forgetting (must keep) ===================== */
 
-    private static final int FORGET_AFTER_TURNS = 15;
+    private static final int FORGET_AFTER_TURNS = 30;
     private static boolean[] seenEver = null;
     private static int[] unseenTurns = null;
     private static int nGhostMemo = -1;
