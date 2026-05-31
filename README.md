@@ -36,6 +36,7 @@ L'exploration est `epsilon`-greedy avec décroissance d'`epsilon`.
 | `src/rl/Snapshot.java`      | Photo immuable d'un état (pour la mise à jour TD). |
 | `src/rl/RLTrainer.java`     | **Applique** l'apprentissage, le **valide** (convergence) et le **teste** (vs aléatoire). |
 | `src/rl/RLTest.java`        | Tests d'intégration déterministes de la politique apprise. |
+| `src/rl/RealMapRunner.java` | Évalue la politique apprise sur les vraies cartes (`doc/map1..3.map`). |
 | `src/logic/QLearningAI.java`| Pont avec le vrai jeu : politique apprise utilisable à la place de `AI.findNextMove`. |
 | `doc/qweights.txt`          | Poids appris (générés par l'entraînement). |
 
@@ -54,6 +55,9 @@ java -cp out rl.RLTrainer
 
 # 2) Tests d'intégration de la politique apprise
 java -cp out rl.RLTest
+
+# 3) Évaluation sur les vraies cartes du jeu (25x25), sans interface graphique
+java -cp out rl.RealMapRunner
 ```
 
 Les deux programmes renvoient un code de sortie 0 en cas de succès (utilisable
@@ -72,6 +76,17 @@ en intégration continue).
 
 - **Tests d'intégration** : l'agent fuit un fantôme dangereux, va chercher une
   gomme proche, et poursuit un fantôme apeuré — tous passent.
+- **Évaluation sur les vraies cartes** (200 parties par carte, politique apprise
+  uniquement sur la carte 11x11, jamais sur ces cartes 25x25) :
+
+  | Carte | Taux de victoire | Score moyen | Meilleur score |
+  |-------|-----------------:|------------:|---------------:|
+  | map1 (violet) | 44 % | 1773 | 2960 |
+  | map2 (green)  | 32 % | 1848 | 3310 |
+  | map3 (pink)   | 47 % | 1687 | 2630 |
+
+  L'agent réussit à **terminer les 3 cartes** (au moins une victoire chacune),
+  ce qui montre que la politique apprise se généralise à des niveaux inédits.
 
 ### Utiliser la politique apprise dans le jeu
 
