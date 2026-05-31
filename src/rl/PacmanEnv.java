@@ -94,6 +94,67 @@ public class PacmanEnv implements GameView {
     public void setMaxSteps(int m) { this.maxSteps = m; }
 
     /**
+     * Construit un environnement a partir d'un instantane {@link GameView}
+     * (l'etat courant du VRAI jeu), afin d'y faire tourner la recherche a
+     * horizon (lookahead). On capture murs, gommes et super gommes courantes,
+     * la position de Pac-Man, et les fantomes (position + etat apeure).
+     *
+     * Approximations assumees (le vrai jeu n'expose pas tout) :
+     *  - le compteur d'apeurement est fixe a SCARE_TIME si le fantome est apeure ;
+     *  - les points de reapparition des fantomes = leur position courante ;
+     *  - les fantomes de position inconnue (-1) sont ignores.
+     */
+    public PacmanEnv(GameView v) {
+        this.rng = new Random(0);
+        this.rows = v.rows();
+        this.cols = v.cols();
+        this.layout = new char[rows][cols];
+        this.food = new boolean[rows][cols];
+        this.power = new boolean[rows][cols];
+        int tf = 0;
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (v.isWall(r, c)) layout[r][c] = '#';
+                else layout[r][c] = 'O';
+                boolean cap = v.hasCapsule(r, c);
+                boolean fd = v.hasFood(r, c);
+                food[r][c] = fd;
+                power[r][c] = cap;
+                if (fd) tf++;
+            }
+        }
+        this.pacR = v.pacR();
+        this.pacC = v.pacC();
+        this.pacSpawnR = pacR;
+        this.pacSpawnC = pacC;
+
+        List<int[]> gs = new ArrayList<>();
+        List<Boolean> sc = new ArrayList<>();
+        for (int i = 0; i < v.numGhosts(); i++) {
+            int gr = v.ghostR(i), gc = v.ghostC(i);
+            if (gr < 0 || gc < 0) continue;          // position inconnue : ignore
+            gs.add(new int[]{gr, gc});
+            sc.add(v.ghostScared(i));
+        }
+        this.ghostSpawns = gs.toArray(new int[0][]);
+        int n = gs.size();
+        this.ghR = new int[n];
+        this.ghC = new int[n];
+        this.scared = new int[n];
+        for (int i = 0; i < n; i++) {
+            ghR[i] = gs.get(i)[0];
+            ghC[i] = gs.get(i)[1];
+            scared[i] = sc.get(i) ? SCARE_TIME : 0;
+        }
+        this.totalFood = tf;
+        this.foodLeft = tf;
+        this.score = 0;
+        this.steps = 0;
+        this.done = false;
+        this.maxSteps = rows * cols * 4;
+    }
+
+    /**
      * Constructeur de copie : duplique l'etat mutable et partage les donnees
      * immuables (layout, positions de depart). Utilise par {@link #copy(long)}
      * pour simuler des coups en avant (lookahead) sans modifier l'environnement
