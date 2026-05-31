@@ -43,7 +43,6 @@ public class QLearningAI {
         -21.2270,   // closest-food
         62.4680,    // closest-scared-ghost
         -108.3977,  // #-dangerous-ghosts-2-steps
-        0.0,        // ghost-safe-distance (placeholder, remplace apres reentrainement)
     };
 
     private static final String WEIGHTS_PATH = "doc/qweights.txt";

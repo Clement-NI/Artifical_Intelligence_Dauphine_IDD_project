@@ -31,7 +31,14 @@ public class PacmanEnv implements GameView {
     public static final int SCORE_GHOST = 200;
     public static final int SCARE_TIME = 18;
     public static final int WIN_REWARD = 500;
-    public static final int LOSE_REWARD = -500;
+    /**
+     * Penalite de mort (collision avec un fantome). Reglable via la propriete
+     * systeme "pacman.lose" (ex: -Dpacman.lose=-3000) afin de tester l'effet
+     * d'alourdir le cout de la mort : une mort termine la partie, donc si sa
+     * penalite est trop faible face a la valeur des gommes, l'agent prend des
+     * risques mortels pour grappiller des gommes proches.
+     */
+    public static final int LOSE_REWARD = Integer.getInteger("pacman.lose", -500);
     public static final double GHOST_CHASE_PROB = 0.8;
 
     private final char[][] layout;     // mise en page d'origine (murs, gommes)
