@@ -94,14 +94,48 @@ en intégration continue).
 (en les alternant). La convergence est nette (retour moyen −411 → +488), mais le
 **taux de victoire ne progresse quasiment pas** (47 % / 33,7 % / 45,3 %).
 
-Diagnostic : le goulot d'étranglement n'est pas la quantité d'entraînement mais
-le **petit nombre de features (5)**. Le modèle linéaire apprend à éviter les
-fantômes et à viser la gomme la plus proche, mais ne peut pas représenter une
-**planification de trajet à long terme** (revenir nettoyer les dernières gommes
-isolées) ni la **sortie de cul-de-sac**. C'est le comportement attendu pour ce
-jeu de features (cf. projet Berkeley). Pour dépasser ~50 % de victoires, il
-faudrait enrichir les features (détection de cul-de-sac, distance graduée aux
-fantômes, regroupement des gommes restantes) plutôt qu'entraîner plus longtemps.
+Diagnostic : avec seulement **5 features**, le goulot d'étranglement n'était pas
+la quantité d'entraînement mais la capacité du modèle. Le modèle linéaire
+apprenait à éviter les fantômes et à viser la gomme la plus proche, mais sans
+pouvoir représenter le **risque d'être acculé** en cul-de-sac.
+
+### Enrichissement des features (5 → 8) : forte hausse du taux de victoire
+
+Trois features stratégiques ont été ajoutées à `Features.java`, ciblant le mode
+d'échec dominant (se faire piéger en cherchant les dernières gommes) :
+
+- `danger-ghost-proximity` : distance BFS **graduée** au fantôme dangereux le
+  plus proche (alerte bien avant le contact à un pas) ;
+- `dead-end-near-ghost` : faible nombre d'issues de la case d'arrivée combiné à
+  un fantôme dangereux dans le rayon (**détection de cul-de-sac**) ;
+- `eats-capsule-when-hunted` : capture d'une super gomme quand un fantôme
+  dangereux est proche (**retournement de situation**).
+
+Après réentraînement sur les vraies cartes (`RealMapTrainer`, 8 features), le
+taux de victoire par carte **passe d'environ 45 % à plus de 80 %** :
+
+| Carte | Avant (5 features) | Après (8 features) | Score moyen |
+|-------|-------------------:|-------------------:|------------:|
+| map1 (violet) | 47,0 % | **82,0 %** | 2171 |
+| map2 (green)  | 33,7 % | **75,7 %** | 2477 |
+| map3 (pink)   | 45,3 % | **88,5 %** | 2173 |
+
+Toutes les cartes sont désormais **réussies (≥ 50 % de victoires) : 3 / 3**.
+
+### Probabilité de terminer les 3 cartes d'affilée
+
+`src/rl/SequentialRunner` enchaîne map1 → map2 → map3 (une seule vie par
+campagne) sur 5000 essais :
+
+| Étape | Avant (5 features) | Après (8 features) |
+|-------|-------------------:|-------------------:|
+| Terminer ≥ 1 carte | 41,5 % | **82,5 %** |
+| Terminer ≥ 2 cartes | 12,6 % | **62,4 %** |
+| **Terminer les 3 cartes** | **5,2 %** | **54,5 %** |
+
+L'enrichissement des features fait passer la probabilité de boucler les trois
+niveaux d'affilée de **~5 % à ~55 %** (le vrai jeu, qui accorde plusieurs vies,
+serait encore plus élevé).
 
 ### Utiliser la politique apprise dans le jeu
 
