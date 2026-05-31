@@ -20,7 +20,7 @@ import java.util.List;
  */
 public class RLTest {
 
-    static final double[] DEFAULT_WEIGHTS = {91.6445, -511.0326, 45.5287, -17.1416, 62.8738};
+    static final double[] DEFAULT_WEIGHTS = {87.6060, -496.5099, 48.1285, -21.2270, 62.4680, -108.3977};
 
     public static void main(String[] args) {
         double[] w;

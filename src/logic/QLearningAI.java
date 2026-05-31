@@ -35,13 +35,14 @@ public class QLearningAI {
         PacManLauncher.UP, PacManLauncher.DOWN, PacManLauncher.LEFT, PacManLauncher.RIGHT
     };
 
-    /** Poids appris par défaut (cf. sortie de rl.RLTrainer), dans l'ordre de Features.NAMES. */
+    /** Poids appris par défaut (cf. sortie de rl.RealMapTrainer), dans l'ordre de Features.NAMES. */
     private static final double[] DEFAULT_WEIGHTS = {
-        91.6445,    // bias
-        -511.0326,  // #-ghosts-1-step-away
-        45.5287,    // eats-food
-        -17.1416,   // closest-food
-        62.8738,    // closest-scared-ghost
+        87.6060,    // bias
+        -496.5099,  // #-ghosts-1-step-away
+        48.1285,    // eats-food
+        -21.2270,   // closest-food
+        62.4680,    // closest-scared-ghost
+        -108.3977,  // #-dangerous-ghosts-2-steps
     };
 
     private static final String WEIGHTS_PATH = "doc/qweights.txt";
