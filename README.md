@@ -120,6 +120,33 @@ d'échec dominant (se faire piéger en cherchant les dernières gommes) :
 > puis le modèle a été réentraîné. Les chiffres définitifs sont mis à jour
 > ci-dessous après réentraînement.
 
+### Tentative DQN (reseau de neurones) : echec de cette version
+
+Pour tenter de depasser le plafond (~43-48%) du modele lineaire, un DQN complet
+a ete implemente a la main (`NeuralNet`, `StateEncoder` a 20 dims encodant le
+danger/la nourriture par direction, `DQNTrainer` avec rejeu d'experience et
+reseau cible).
+
+**Resultat honnete : cette version du DQN est MOINS BONNE que le modele lineaire.**
+
+| Carte | Lineaire (6 feat.) | DQN |
+|-------|-------------------:|----:|
+| map1  | 40 %   | 22,0 % |
+| map2  | 42,5 % | 23,3 % |
+| map3  | 48,5 % | 15,3 % |
+| **moyenne** | **43,7 %** | **20,2 %** |
+
+L'entrainement converge pourtant bien (retour moyen −394 → +637 sur 40000
+episodes) : le reseau apprend. Mais il optimise le SCORE (manger un maximum de
+gommes) et non la VICTOIRE — il finit souvent mange juste avant de terminer la
+carte. Le modele lineaire, dont le poids d'evitement est tres fort, est plus
+"prudent" et termine plus souvent.
+
+Conclusion : **le modele lineaire 6 features (43,7%) reste la meilleure
+politique**, et c'est lui qui pilote le jeu. Le DQN demanderait au minimum une
+recompense orientee "victoire" (et non "score") et un reglage d'hyperparametres
+pour esperer le battre — non garanti.
+
 ### Utiliser la politique apprise dans le jeu
 
 Dans `src/logic/PacManLauncher.java` (méthode `animate`), remplacer :
