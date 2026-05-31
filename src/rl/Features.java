@@ -28,7 +28,11 @@ public final class Features {
         "closest-food",
         "closest-scared-ghost",
         "#-dangerous-ghosts-2-steps",   // fantomes dangereux a distance-couloir 2 (preavis)
+        "ghost-safe-distance",          // distance BFS au fantome dangereux le + proche, BORNEE
     };
+
+    /** Distance (en cases) au-dela de laquelle un fantome n'est plus une menace. */
+    private static final int SAFE_CAP = 5;
 
     public static final int N = NAMES.length;
 
@@ -100,7 +104,54 @@ public final class Features {
         //      large rayon (echec d'une tentative precedente).
         f[5] = countDangerousGhostsAtBfs(v, nr, nc, 2);
 
+        // f6 : "rester a distance de securite des fantomes". Distance-couloir BFS
+        //      au fantome dangereux le plus proche, BORNEE a SAFE_CAP puis
+        //      normalisee dans [0,1]. Point clef : la valeur SATURE a SAFE_CAP
+        //      cases. L'agent est donc incite a s'eloigner JUSQU'A une distance
+        //      sure, mais au-dela il n'a plus aucune raison de continuer a fuir :
+        //      il peut retourner manger les gommes. C'est la difference avec la
+        //      tentative precedente (1/(1+d), non bornee), ou la fuite ecrasait
+        //      tout et effondrait le taux de victoire.
+        int dDanger = closestDangerousGhostDistance(v, nr, nc);
+        if (dDanger < 0) {
+            f[6] = 1.0;   // aucun fantome dangereux atteignable -> totalement sur
+        } else {
+            f[6] = Math.min(dDanger, SAFE_CAP) / (double) SAFE_CAP;
+        }
+
         return f;
+    }
+
+    /**
+     * BFS depuis (sr,sc) jusqu'au fantôme NON apeuré le plus proche, en distance
+     * de couloir (contourne les murs). Limite l'exploration a SAFE_CAP pas.
+     * @return la distance (0..SAFE_CAP), ou -1 si aucun fantome dangereux a
+     *         portee de SAFE_CAP.
+     */
+    private static int closestDangerousGhostDistance(GameView v, int sr, int sc) {
+        int rows = v.rows(), cols = v.cols();
+        boolean[][] seen = new boolean[rows][cols];
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{sr, sc, 0});
+        seen[sr][sc] = true;
+        while (!queue.isEmpty()) {
+            int[] cur = queue.poll();
+            int r = cur[0], c = cur[1], d = cur[2];
+            for (int g = 0; g < v.numGhosts(); g++) {
+                if (!v.ghostScared(g) && v.ghostR(g) == r && v.ghostC(g) == c) {
+                    return d;
+                }
+            }
+            if (d >= SAFE_CAP) continue; // ne pas explorer au-dela de la portee utile
+            for (int k = 0; k < 4; k++) {
+                int rr = r + DR[k], cc = c + DC[k];
+                if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
+                if (seen[rr][cc] || v.isWall(rr, cc)) continue;
+                seen[rr][cc] = true;
+                queue.add(new int[]{rr, cc, d + 1});
+            }
+        }
+        return -1;
     }
 
     /**
