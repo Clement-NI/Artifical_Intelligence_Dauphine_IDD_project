@@ -34,6 +34,16 @@ public class PacManLauncher {
 	}
 
 	public static void main (String[] args) {
+		// Vitesse du jeu : 1er argument = delai d'animation en ms (0 = le plus rapide).
+		// Ex : java -cp out logic.PacManLauncher 0   (tres rapide)
+		//      java -cp out logic.PacManLauncher 60  (plus lent)
+		if(args.length > 0) {
+			try {
+				view.Canvas.setAnimationDelay(Integer.parseInt(args[0]));
+			} catch(NumberFormatException e) {
+				System.out.println("Argument de vitesse invalide, valeur par defaut conservee.");
+			}
+		}
 		//Canvas c = Canvas.getCanvas();
 		PacManLauncher pml = new PacManLauncher();
 		pml.draw();

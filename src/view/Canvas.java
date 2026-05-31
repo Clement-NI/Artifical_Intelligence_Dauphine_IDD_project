@@ -55,6 +55,24 @@ public class Canvas
 	private boolean isAIdriven;
 
 	/**
+	 * Delai d'animation (en millisecondes) applique apres chaque redessin.
+	 * Reglable pour accelerer/ralentir le jeu. Surchargé par la propriete
+	 * systeme "pacman.delay" (ex: java -Dpacman.delay=10 ...).
+	 * Valeur par defaut reduite a 20 ms (au lieu de 125) pour un jeu plus rapide.
+	 */
+	private static int animationDelay = Integer.getInteger("pacman.delay", 20);
+
+	/** Regle le delai d'animation en millisecondes (0 = le plus rapide). */
+	public static void setAnimationDelay(int ms) {
+		animationDelay = Math.max(0, ms);
+	}
+
+	/** Retourne le delai d'animation courant en millisecondes. */
+	public static int getAnimationDelay() {
+		return animationDelay;
+	}
+
+	/**
 	 * Create a Canvas.
 	 * @param title    title to appear in Canvas Frame
 	 * @param width    the desired width for the canvas
@@ -287,7 +305,9 @@ public class Canvas
 		printString("Vie : "+life, 10, 40);
 		printString("Meilleur score : "+meilleurScore, 240, 20);
 		canvas.repaint();
-		wait(125);
+		if(animationDelay > 0) {
+			wait(animationDelay);
+		}
 	}
 
 	/**
