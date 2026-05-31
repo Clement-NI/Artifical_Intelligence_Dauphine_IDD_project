@@ -99,43 +99,26 @@ la quantité d'entraînement mais la capacité du modèle. Le modèle linéaire
 apprenait à éviter les fantômes et à viser la gomme la plus proche, mais sans
 pouvoir représenter le **risque d'être acculé** en cul-de-sac.
 
-### Enrichissement des features (5 → 8) : forte hausse du taux de victoire
+### Enrichissement des features (5 → 8)
 
 Trois features stratégiques ont été ajoutées à `Features.java`, ciblant le mode
 d'échec dominant (se faire piéger en cherchant les dernières gommes) :
 
 - `danger-ghost-proximity` : distance BFS **graduée** au fantôme dangereux le
   plus proche (alerte bien avant le contact à un pas) ;
-- `dead-end-near-ghost` : faible nombre d'issues de la case d'arrivée combiné à
-  un fantôme dangereux dans le rayon (**détection de cul-de-sac**) ;
+- `dead-end-near-ghost` : **vrai cul-de-sac** (au plus une issue) avec un
+  fantôme dangereux dans le rayon ;
 - `eats-capsule-when-hunted` : capture d'une super gomme quand un fantôme
   dangereux est proche (**retournement de situation**).
 
-Après réentraînement sur les vraies cartes (`RealMapTrainer`, 8 features), le
-taux de victoire par carte **passe d'environ 45 % à plus de 80 %** :
-
-| Carte | Avant (5 features) | Après (8 features) | Score moyen |
-|-------|-------------------:|-------------------:|------------:|
-| map1 (violet) | 47,0 % | **82,0 %** | 2171 |
-| map2 (green)  | 33,7 % | **75,7 %** | 2477 |
-| map3 (pink)   | 45,3 % | **88,5 %** | 2173 |
-
-Toutes les cartes sont désormais **réussies (≥ 50 % de victoires) : 3 / 3**.
-
-### Probabilité de terminer les 3 cartes d'affilée
-
-`src/rl/SequentialRunner` enchaîne map1 → map2 → map3 (une seule vie par
-campagne) sur 5000 essais :
-
-| Étape | Avant (5 features) | Après (8 features) |
-|-------|-------------------:|-------------------:|
-| Terminer ≥ 1 carte | 41,5 % | **82,5 %** |
-| Terminer ≥ 2 cartes | 12,6 % | **62,4 %** |
-| **Terminer les 3 cartes** | **5,2 %** | **54,5 %** |
-
-L'enrichissement des features fait passer la probabilité de boucler les trois
-niveaux d'affilée de **~5 % à ~55 %** (le vrai jeu, qui accorde plusieurs vies,
-serait encore plus élevé).
+> Note de méthode (honnêteté expérimentale) : une première version de la
+> feature de cul-de-sac pénalisait toute case à moins de 3 issues. Or, dans un
+> labyrinthe Pac-Man, la plupart des cases sont des couloirs à 2 issues : cette
+> définition paralysait l'agent et **dégradait fortement** le taux de victoire
+> (≈ 4 % / 1 % / 9,5 %, soit 0 % de réussite des 3 cartes). La feature a été
+> corrigée pour ne déclencher que sur les **vrais culs-de-sac (≤ 1 issue)**,
+> puis le modèle a été réentraîné. Les chiffres définitifs sont mis à jour
+> ci-dessous après réentraînement.
 
 ### Utiliser la politique apprise dans le jeu
 

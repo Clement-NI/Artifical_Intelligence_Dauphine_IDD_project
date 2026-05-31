@@ -120,12 +120,13 @@ public final class Features {
             f[5] = 1.0 / (1.0 + dGhost);
         }
 
-        // f6 : cul-de-sac dangereux. Si un fantôme dangereux est dans le rayon et
-        //      que la case d'arrivée a peu d'issues, on signale le risque d'être
-        //      acculé. Valeur dans [0,1] : 1 = impasse totale, 0 = carrefour ouvert.
-        if (dangerWithinRadius) {
-            int liberties = countLiberties(v, nr, nc);
-            f[6] = (3 - Math.min(liberties, 3)) / 3.0; // 0 issue ->1, >=3 issues ->0
+        // f6 : VRAI cul-de-sac dangereux. On ne déclenche que pour une impasse
+        //      réelle (au plus une issue praticable), et seulement si un fantôme
+        //      dangereux est dans le rayon. Important : dans un labyrinthe Pac-Man
+        //      la plupart des cases sont des couloirs à 2 issues ; il ne faut donc
+        //      PAS les pénaliser, sous peine de paralyser l'agent.
+        if (dangerWithinRadius && countLiberties(v, nr, nc) <= 1) {
+            f[6] = 1.0;
         }
 
         // f7 : mange une super gomme alors qu'un fantôme dangereux est proche
