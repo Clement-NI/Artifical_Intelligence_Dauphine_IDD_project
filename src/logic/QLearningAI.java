@@ -45,6 +45,7 @@ public class QLearningAI {
         -108.3977,  // #-dangerous-ghosts-2-steps
         0.0,        // eats-capsule (placeholder, remplace apres reentrainement)
         0.0,        // closer-to-capsule-when-hunted (placeholder)
+        0.0,        // ghost-safe-distance (placeholder)
     };
 
     private static final String WEIGHTS_PATH = "doc/qweights.txt";

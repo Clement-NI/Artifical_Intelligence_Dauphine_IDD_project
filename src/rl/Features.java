@@ -30,7 +30,11 @@ public final class Features {
         "#-dangerous-ghosts-2-steps",   // fantomes dangereux a distance-couloir 2 (preavis)
         "eats-capsule",                 // mange une super gomme MAINTENANT
         "closer-to-capsule-when-hunted",// se rapproche d'une super gomme quand un fantome est proche
+        "ghost-safe-distance",          // distance BFS au fantome dangereux, BORNEE (rester loin)
     };
+
+    /** Distance (cases) au-dela de laquelle un fantome dangereux n'inquiete plus. */
+    private static final int SAFE_CAP = 6;
 
     public static final int N = NAMES.length;
 
@@ -123,6 +127,15 @@ public final class Features {
                 f[7] = 1.0 / (1.0 + dCap);
             }
         }
+
+        // f8 : "rester loin des fantomes", version BORNEE. Distance-couloir BFS au
+        //      fantome dangereux le plus proche, plafonnee a SAFE_CAP puis
+        //      normalisee dans [0,1] (1 = sur/loin, petit = proche). La SATURATION
+        //      est essentielle : on recompense l'eloignement JUSQU'A une distance
+        //      sure, sans inciter a fuir indefiniment (ce qui ecraserait la collecte
+        //      de gommes -- echec d'une version NON bornee precedente).
+        int dSafe = bfsToDangerousGhost(v, nr, nc, SAFE_CAP);
+        f[8] = (dSafe < 0) ? 1.0 : Math.min(dSafe, SAFE_CAP) / (double) SAFE_CAP;
 
         return f;
     }

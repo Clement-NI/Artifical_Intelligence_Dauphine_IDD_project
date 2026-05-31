@@ -30,6 +30,7 @@ public class VerifyGamePath {
             int wins = 0;
             for (int g = 0; g < GAMES; g++) {
                 real.reset();
+                policy.resetHistory();
                 while (!real.isDone()) {
                     // comme en jeu : on reconstruit un env depuis l'etat courant
                     PacmanEnv viewEnv = new PacmanEnv((GameView) real);

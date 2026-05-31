@@ -49,6 +49,7 @@ public class VerifyLookahead {
         int wins = 0;
         for (int i = 0; i < GAMES; i++) {
             env.reset();
+            policy.resetHistory();
             while (!env.isDone()) {
                 int a = (depth == 1) ? q.greedyAction(env, env.legalActions()) : policy.choose(env);
                 env.step(a);

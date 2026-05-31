@@ -1,7 +1,7 @@
 # Pac-Man par Apprentissage par Renforcement — Support de présentation
 
 > Q-learning approché (linéaire) + recherche à horizon, appliqué au Pac-Man du projet.
-> Taux de victoire : **~43% → ~55%**.
+> Taux de victoire : **~43% → ~58%**.
 
 ---
 
@@ -10,7 +10,7 @@
 On entraîne un agent à jouer à Pac-Man par **Q-learning approché (approximation
 linéaire de la fonction de valeur)**, puis on ajoute au moment de jouer une
 **recherche à horizon limité (lookahead)**. Le taux de victoire passe d'environ
-**43% à 55%**.
+**43% à 58%**.
 
 ---
 
@@ -127,7 +127,7 @@ a* = argmax_a [ r(s,a) + γ · max_a' ( r' + γ · max_a'' … Q_feuille ) ]
 - les actions de Pac-Man sont MAXIMISÉES ;
 - les fantômes répondent par une poursuite gloutonne déterministe ;
 - les feuilles de l'arbre sont évaluées par le `Q` linéaire appris ;
-- la profondeur 3 fait passer le taux de victoire de 43% à 55%.
+- la profondeur 3 fait passer le taux de victoire de 43% à 58%.
 
 ---
 
@@ -141,7 +141,7 @@ Présenter l'**itération guidée par les données** (et non un simple résultat
 3. **Idée** : manger une super gomme rend les fantômes comestibles → supprime la
    cause n°1 des défaites.
 4. **Amélioration** : récompense super gomme ↑ + features capsule + lookahead →
-   **55%**.
+   **55%**, puis anti-boucle + distance de securite -> **~58%**.
 5. **Échec assumé** : on a aussi essayé un DQN (réseau de neurones) — résultat
    PIRE (20%). Conclusion : « plus complexe ≠ meilleur ».
 
@@ -156,7 +156,7 @@ Présenter l'**itération guidée par les données** (et non un simple résultat
 # Compiler
 javac -encoding UTF-8 -d out @sources.txt
 
-# Voir l'IA jouer (lookahead profondeur 3, ~55%)
+# Voir l'IA jouer (lookahead profondeur 3, ~58%)
 java -cp out logic.PacManLauncher
 
 # Comparer : politique gloutonne (profondeur 1, ~43%)
@@ -176,7 +176,8 @@ java -cp out rl.VerifyLookahead
 | Approche | Taux de victoire moyen |
 |---|--:|
 | Linéaire gloutonne (profondeur 1) | ~43% |
-| **Linéaire + capsules + lookahead prof. 3** | **~55%** |
+| **Linéaire + capsules + lookahead prof. 3 (6 features)** | ~55% |
+| **+ anti-boucle + distance de sécurité (9 features)** | **~58-60%** |
 | DQN (réseau de neurones) — échec | ~20% |
 
 Vérifié sur 3 graines d'évaluation indépendantes.

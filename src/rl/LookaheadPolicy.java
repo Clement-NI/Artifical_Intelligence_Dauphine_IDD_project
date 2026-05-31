@@ -1,5 +1,7 @@
 package rl;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -22,24 +24,56 @@ public class LookaheadPolicy {
     private final int depth;
     private final double gamma;
 
+    // --- Anti-boucle : memoire des cases recemment visitees -------------------
+    /** Nombre de cases recentes memorisees. */
+    private static final int HISTORY = 12;
+    /** Penalite (en unites de Q) pour une action menant sur une case recente. */
+    private static final double LOOP_PENALTY = 30.0;
+    private final Deque<Long> recent = new ArrayDeque<>();
+
     public LookaheadPolicy(QLearningAgent q, int depth, double gamma) {
         this.q = q;
         this.depth = Math.max(1, depth);
         this.gamma = gamma;
     }
 
-    /** Action choisie depuis l'etat reel (non modifie : on travaille sur des copies). */
+    /** Reinitialise la memoire anti-boucle (a appeler en debut de partie/niveau). */
+    public void resetHistory() {
+        recent.clear();
+    }
+
+    private static long key(int r, int c) {
+        return (((long) r) << 20) | (c & 0xFFFFF);
+    }
+
+    /**
+     * Action choisie depuis l'etat reel (non modifie : on travaille sur des
+     * copies). Au-dela du retour estime par la recherche, on PENALISE les actions
+     * qui ramenent sur une case visitee tres recemment : cela casse les
+     * allers-retours / tours en rond sterile, SANS empecher de repasser sur une
+     * case lointaine dans le temps (la memoire est courte).
+     */
     public int choose(PacmanEnv env) {
         List<Integer> legal = env.legalActions();
-        if (depth == 1) return q.greedyAction(env, legal);
         double best = Double.NEGATIVE_INFINITY;
         int bestA = legal.get(0);
         for (int a : legal) {
             PacmanEnv sim = env.copy(0);          // graine ignoree (stepDet est deterministe)
             double r = sim.stepDet(a);
-            double v = r + gamma * value(sim, depth - 1);
+            double v = (depth == 1)
+                    ? q.qValue(env, a)            // profondeur 1 = valeur gloutonne
+                    : r + gamma * value(sim, depth - 1);
+            // malus anti-boucle : la case d'arrivee a-t-elle ete vue recemment ?
+            if (recent.contains(key(sim.pacR(), sim.pacC()))) {
+                v -= LOOP_PENALTY;
+            }
             if (v > best) { best = v; bestA = a; }
         }
+        // memorise la case ou l'on arrive effectivement
+        PacmanEnv after = env.copy(0);
+        after.stepDet(bestA);
+        recent.addLast(key(after.pacR(), after.pacC()));
+        while (recent.size() > HISTORY) recent.removeFirst();
         return bestA;
     }
 
