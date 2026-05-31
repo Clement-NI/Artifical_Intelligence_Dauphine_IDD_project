@@ -21,7 +21,7 @@ import java.util.List;
  */
 public class RealMapRunner {
 
-    static final double[] DEFAULT_WEIGHTS = {23.4913, -418.0380, 53.4116, -28.6930, 67.0589};
+    static final double[] DEFAULT_WEIGHTS = {91.6445, -511.0326, 45.5287, -17.1416, 62.8738};
     static final String[] MAPS = {"doc/map1.map", "doc/map2.map", "doc/map3.map"};
     static final int N_GAMES = 200;
 

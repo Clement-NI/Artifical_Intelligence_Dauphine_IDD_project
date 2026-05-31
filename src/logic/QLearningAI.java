@@ -37,11 +37,11 @@ public class QLearningAI {
 
     /** Poids appris par défaut (cf. sortie de rl.RLTrainer), dans l'ordre de Features.NAMES. */
     private static final double[] DEFAULT_WEIGHTS = {
-        23.4913,    // bias
-        -418.0380,  // #-ghosts-1-step-away
-        53.4116,    // eats-food
-        -28.6930,   // closest-food
-        67.0589,    // closest-scared-ghost
+        91.6445,    // bias
+        -511.0326,  // #-ghosts-1-step-away
+        45.5287,    // eats-food
+        -17.1416,   // closest-food
+        62.8738,    // closest-scared-ghost
     };
 
     private static final String WEIGHTS_PATH = "doc/qweights.txt";
