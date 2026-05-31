@@ -1,6 +1,8 @@
-bias 87.60598095875845
-#-ghosts-1-step-away -496.5098874341612
-eats-food 48.12851797609687
-closest-food -21.226958428180524
-closest-scared-ghost 62.46795444778832
-#-dangerous-ghosts-2-steps -108.39768022132155
+bias 112.7924477894473
+#-ghosts-1-step-away -529.1517557972644
+eats-food 62.63138641616361
+closest-food -28.635953892602355
+closest-scared-ghost 28.689575221700178
+#-dangerous-ghosts-2-steps -99.3229775698621
+eats-capsule 154.32520482384808
+closer-to-capsule-when-hunted 129.344341792188

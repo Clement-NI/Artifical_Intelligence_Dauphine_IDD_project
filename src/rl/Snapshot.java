@@ -13,6 +13,7 @@ public final class Snapshot implements GameView {
     private final int rows, cols;
     private final boolean[][] wall;
     private final boolean[][] food;
+    private final boolean[][] capsule;
     private final int pacR, pacC;
     private final int[] ghR, ghC;
     private final boolean[] scared;
@@ -22,10 +23,12 @@ public final class Snapshot implements GameView {
         this.cols = e.cols();
         this.wall = new boolean[rows][cols];
         this.food = new boolean[rows][cols];
+        this.capsule = new boolean[rows][cols];
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 wall[r][c] = e.isWall(r, c);
                 food[r][c] = e.hasFood(r, c);
+                capsule[r][c] = e.hasCapsule(r, c);
             }
         }
         this.pacR = e.pacR();
@@ -54,6 +57,10 @@ public final class Snapshot implements GameView {
     @Override public boolean hasFood(int r, int c) {
         if (r < 0 || c < 0 || r >= rows || c >= cols) return false;
         return food[r][c];
+    }
+    @Override public boolean hasCapsule(int r, int c) {
+        if (r < 0 || c < 0 || r >= rows || c >= cols) return false;
+        return capsule[r][c];
     }
     @Override public int pacR() { return pacR; }
     @Override public int pacC() { return pacC; }

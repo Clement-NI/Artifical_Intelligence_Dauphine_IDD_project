@@ -19,7 +19,7 @@ import java.util.List;
  */
 public class Diagnose {
 
-    static final double[] DEFAULT_WEIGHTS = {87.6060, -496.5099, 48.1285, -21.2270, 62.4680, -108.3977};
+    static final double[] DEFAULT_WEIGHTS = {87.6060, -496.5099, 48.1285, -21.2270, 62.4680, -108.3977, 0.0, 0.0};
     static final String[] MAPS = {"doc/map1.map", "doc/map2.map", "doc/map3.map"};
     static final int N = 300;
 

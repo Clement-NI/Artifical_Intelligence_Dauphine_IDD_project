@@ -43,6 +43,8 @@ public class QLearningAI {
         -21.2270,   // closest-food
         62.4680,    // closest-scared-ghost
         -108.3977,  // #-dangerous-ghosts-2-steps
+        0.0,        // eats-capsule (placeholder, remplace apres reentrainement)
+        0.0,        // closer-to-capsule-when-hunted (placeholder)
     };
 
     private static final String WEIGHTS_PATH = "doc/qweights.txt";
@@ -147,6 +149,11 @@ public class QLearningAI {
             if (r < 0 || c < 0 || r >= rows || c >= cols) return false;
             char ch = map[r][c];
             return ch == '.' || ch == '*';
+        }
+
+        @Override public boolean hasCapsule(int r, int c) {
+            if (r < 0 || c < 0 || r >= rows || c >= cols) return false;
+            return map[r][c] == '*';
         }
 
         @Override public int pacR() { return pr; }

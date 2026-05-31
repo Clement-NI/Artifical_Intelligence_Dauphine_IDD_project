@@ -120,6 +120,35 @@ d'échec dominant (se faire piéger en cherchant les dernières gommes) :
 > puis le modèle a été réentraîné. Les chiffres définitifs sont mis à jour
 > ci-dessous après réentraînement.
 
+### Percee : capsules + lookahead -> ~52% (meilleur resultat)
+
+Combinaison de trois leviers (Q-learning lineaire traditionnel, sans DQN) :
+
+1. **Encourager les super gommes** : le diagnostic montre que 100% des defaites
+   sont des collisions mortelles. Or manger une super gomme rend les fantomes
+   comestibles (ils ne tuent plus). On a donc (a) augmente la recompense de
+   super gomme (50 -> 200), et (b) ajoute 2 features : `eats-capsule` et
+   `closer-to-capsule-when-hunted`. Poids appris : +154 et +129 (forte adoption).
+2. **Prediction sur plusieurs pas** : `LookaheadPolicy` developpe les coups de
+   Pac-Man sur N pas, les fantomes repondant en poursuite gloutonne DETERMINISTE
+   (`PacmanEnv.stepDet`) ; feuilles evaluees par la Q-valeur lineaire apprise.
+3. Toujours un **modele lineaire** (8 features), pas de reseau de neurones.
+
+Resultat, **verifie sur 3 graines d'evaluation differentes** :
+
+| Profondeur | graine 111 | graine 222 | graine 333 | moyenne |
+|-----------:|-----------:|-----------:|-----------:|--------:|
+| 1 (gloutonne) | 40,9 % | 48,4 % | 40,7 % | **43,3 %** |
+| **3 (lookahead)** | 52,2 % | 49,8 % | 54,9 % | **52,3 %** |
+
+La profondeur 3 depasse nettement et de facon stable le plafond precedent
+(~43,7%), soit **+8,6 points**. Le score moyen monte aussi (~1700 -> ~2200).
+
+> Note : la profondeur 2 est un piege (~13%). La recherche deterministe a un
+> comportement en "dents de scie" : a profondeur 2 l'agent voit le danger
+> immediat mais pas l'echappatoire et se fige ; il faut une profondeur >= 3 pour
+> voir la sortie. **En jeu, utiliser la profondeur 3.**
+
 ### Tentative DQN (reseau de neurones) : echec de cette version
 
 Pour tenter de depasser le plafond (~43-48%) du modele lineaire, un DQN complet

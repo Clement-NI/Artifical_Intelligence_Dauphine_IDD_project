@@ -27,7 +27,13 @@ import java.util.Random;
 public class PacmanEnv implements GameView {
 
     public static final int SCORE_GOMME = 10;
-    public static final int SCORE_SUPER = 50;
+    /**
+     * Recompense pour une super gomme (capsule). Reglable via "pacman.super"
+     * (ex: -Dpacman.super=200). Augmentee pour ENCOURAGER a manger les grosses
+     * gommes : elles rendent les fantomes comestibles, ce qui supprime la cause
+     * n.1 des defaites (collision mortelle).
+     */
+    public static final int SCORE_SUPER = Integer.getInteger("pacman.super", 200);
     public static final int SCORE_GHOST = 200;
     public static final int SCARE_TIME = 18;
     public static final int WIN_REWARD = 500;
@@ -234,6 +240,63 @@ public class PacmanEnv implements GameView {
         return reward;
     }
 
+    /**
+     * Variante DETERMINISTE d'un pas, pour la recherche a horizon (lookahead) :
+     * identique a {@link #step(int)} mais les fantomes prennent leur coup de
+     * poursuite gloutonne (sans tirage aleatoire), ce qui rend l'arbre de
+     * recherche reproductible et peu couteux (pas d'echantillonnage).
+     */
+    public double stepDet(int action) {
+        if (done) return 0.0;
+        steps++;
+        double reward = -1.0;
+        int nr = pacR + Features.DR[action];
+        int nc = pacC + Features.DC[action];
+        if (!isWall(nr, nc)) { pacR = nr; pacC = nc; }
+        if (food[pacR][pacC]) {
+            food[pacR][pacC] = false;
+            foodLeft--;
+            if (power[pacR][pacC]) {
+                reward += SCORE_SUPER; score += SCORE_SUPER;
+                power[pacR][pacC] = false;
+                for (int i = 0; i < scared.length; i++) scared[i] = SCARE_TIME;
+            } else {
+                reward += SCORE_GOMME; score += SCORE_GOMME;
+            }
+        }
+        reward += resolveCollisions();
+        if (done) return reward;
+        if (foodLeft == 0) {
+            reward += WIN_REWARD; score += WIN_REWARD; done = true; return reward;
+        }
+        moveGhostsGreedy();
+        for (int i = 0; i < scared.length; i++) if (scared[i] > 0) scared[i]--;
+        reward += resolveCollisions();
+        if (done) return reward;
+        if (steps >= maxSteps) done = true;
+        return reward;
+    }
+
+    /** Deplacement deterministe des fantomes : poursuite (ou fuite si apeure). */
+    private void moveGhostsGreedy() {
+        for (int i = 0; i < ghR.length; i++) {
+            int bestR = ghR[i], bestC = ghC[i];
+            boolean flee = scared[i] > 0;
+            int bestVal = flee ? Integer.MIN_VALUE : Integer.MAX_VALUE;
+            boolean found = false;
+            for (int a = 0; a < 4; a++) {
+                int nr = ghR[i] + Features.DR[a];
+                int nc = ghC[i] + Features.DC[a];
+                if (isWall(nr, nc)) continue;
+                int d = Math.abs(nr - pacR) + Math.abs(nc - pacC);
+                if (!found || (flee ? d > bestVal : d < bestVal)) {
+                    bestVal = d; bestR = nr; bestC = nc; found = true;
+                }
+            }
+            ghR[i] = bestR; ghC[i] = bestC;
+        }
+    }
+
     /** Gère les collisions Pac-Man / fantômes ; renvoie la récompense associée. */
     private double resolveCollisions() {
         double reward = 0.0;
@@ -302,6 +365,11 @@ public class PacmanEnv implements GameView {
     @Override public boolean hasFood(int r, int c) {
         if (r < 0 || c < 0 || r >= rows || c >= cols) return false;
         return food[r][c];
+    }
+
+    @Override public boolean hasCapsule(int r, int c) {
+        if (r < 0 || c < 0 || r >= rows || c >= cols) return false;
+        return power[r][c];
     }
 
     @Override public int pacR() { return pacR; }

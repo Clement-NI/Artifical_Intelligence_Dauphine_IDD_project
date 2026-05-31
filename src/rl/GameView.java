@@ -25,6 +25,13 @@ public interface GameView {
     /** true s'il reste une gomme (normale ou super) sur la case (r,c). */
     boolean hasFood(int r, int c);
 
+    /**
+     * true si la case (r,c) porte une SUPER gomme (capsule) encore presente.
+     * Par defaut false : les implementations qui distinguent les super gommes
+     * (simulateur, vrai jeu) le surchargent.
+     */
+    default boolean hasCapsule(int r, int c) { return false; }
+
     int pacR();
     int pacC();
 
