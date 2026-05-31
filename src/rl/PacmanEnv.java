@@ -80,6 +80,48 @@ public class PacmanEnv implements GameView {
 
     public void setMaxSteps(int m) { this.maxSteps = m; }
 
+    /**
+     * Constructeur de copie : duplique l'etat mutable et partage les donnees
+     * immuables (layout, positions de depart). Utilise par {@link #copy(long)}
+     * pour simuler des coups en avant (lookahead) sans modifier l'environnement
+     * reel. Recoit un generateur aleatoire propre (graine donnee) afin que les
+     * transitions stochastiques des fantomes puissent etre echantillonnees.
+     */
+    private PacmanEnv(PacmanEnv o, long sampleSeed) {
+        this.rng = new Random(sampleSeed);
+        this.rows = o.rows;
+        this.cols = o.cols;
+        this.layout = o.layout;            // immuable, partage
+        this.pacSpawnR = o.pacSpawnR;
+        this.pacSpawnC = o.pacSpawnC;
+        this.ghostSpawns = o.ghostSpawns;  // immuable, partage
+        this.totalFood = o.totalFood;
+        this.maxSteps = o.maxSteps;
+        this.food = new boolean[rows][];
+        this.power = new boolean[rows][];
+        for (int r = 0; r < rows; r++) {
+            this.food[r] = o.food[r].clone();
+            this.power[r] = o.power[r].clone();
+        }
+        this.pacR = o.pacR;
+        this.pacC = o.pacC;
+        this.ghR = o.ghR.clone();
+        this.ghC = o.ghC.clone();
+        this.scared = o.scared.clone();
+        this.foodLeft = o.foodLeft;
+        this.score = o.score;
+        this.steps = o.steps;
+        this.done = o.done;
+    }
+
+    /**
+     * Copie profonde de l'etat courant pour le lookahead (voir le constructeur
+     * de copie ci-dessus).
+     */
+    public PacmanEnv copy(long sampleSeed) {
+        return new PacmanEnv(this, sampleSeed);
+    }
+
     /** Réinitialise l'environnement et retourne l'état initial (this). */
     public PacmanEnv reset() {
         food = new boolean[rows][cols];
