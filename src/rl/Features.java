@@ -27,6 +27,7 @@ public final class Features {
         "eats-food",
         "closest-food",
         "closest-scared-ghost",
+        "#-dangerous-ghosts-2-steps",   // fantomes dangereux a distance-couloir 2 (preavis)
     };
 
     public static final int N = NAMES.length;
@@ -91,7 +92,49 @@ public final class Features {
             f[4] = 1.0 / (1.0 + closestScared);
         }
 
+        // f5 : PREAVIS de danger. Nombre de fantômes dangereux dont la distance
+        //      par couloir (BFS, tient compte des murs) vaut exactement 2 depuis
+        //      la case d'arrivée. Le diagnostic montre que 100% des defaites sont
+        //      des collisions : ce preavis a courte portee (2 cases) donne un pas
+        //      d'anticipation pour s'ecarter, SANS la paralysie d'une penalite a
+        //      large rayon (echec d'une tentative precedente).
+        f[5] = countDangerousGhostsAtBfs(v, nr, nc, 2);
+
         return f;
+    }
+
+    /**
+     * Compte les fantômes NON apeurés dont la distance par couloir (BFS, en
+     * contournant les murs) depuis (sr,sc) est exactement {@code target}.
+     * Limite l'exploration a {@code target} pas (cout negligeable).
+     */
+    private static int countDangerousGhostsAtBfs(GameView v, int sr, int sc, int target) {
+        int rows = v.rows(), cols = v.cols();
+        boolean[][] seen = new boolean[rows][cols];
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{sr, sc, 0});
+        seen[sr][sc] = true;
+        int count = 0;
+        while (!queue.isEmpty()) {
+            int[] cur = queue.poll();
+            int r = cur[0], c = cur[1], d = cur[2];
+            if (d == target) {
+                for (int g = 0; g < v.numGhosts(); g++) {
+                    if (!v.ghostScared(g) && v.ghostR(g) == r && v.ghostC(g) == c) {
+                        count++;
+                    }
+                }
+                continue; // ne pas explorer au-dela de target
+            }
+            for (int k = 0; k < 4; k++) {
+                int rr = r + DR[k], cc = c + DC[k];
+                if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
+                if (seen[rr][cc] || v.isWall(rr, cc)) continue;
+                seen[rr][cc] = true;
+                queue.add(new int[]{rr, cc, d + 1});
+            }
+        }
+        return count;
     }
 
     /**
