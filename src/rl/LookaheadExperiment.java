@@ -22,10 +22,10 @@ public class LookaheadExperiment {
 
     static final double[] DEFAULT_WEIGHTS = {91.6445, -511.0326, 45.5287, -17.1416, 62.8738};
     static final String[] MAPS = {"doc/map1.map", "doc/map2.map", "doc/map3.map"};
-    static final int N_GAMES = 80;          // parties par (carte, profondeur)
-    static final int SAMPLES = 3;           // tirages Monte-Carlo pour les fantomes
+    static final int N_GAMES = 60;          // parties par (carte, profondeur)
+    static final int SAMPLES = 8;           // tirages Monte-Carlo pour les fantomes (reduit le bruit)
     static final double GAMMA = 0.9;
-    static final int[] DEPTHS = {1, 2, 3, 4};
+    static final int[] DEPTHS = {1, 2, 3};  // profondeur 4 trop couteuse (4^4 x samples / pas)
 
     public static void main(String[] args) {
         double[] w;
